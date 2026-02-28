@@ -531,10 +531,15 @@ export class SF_Painting extends plugin {
                 case 'gg图片上传':
                     config_date.gg_enableImageUpload = value === '开'
                     break
-                // 【新增】调试日志开关
+                // 【新增】调试日志开关（绕过 Config 拦截，直接存入 Redis）
                 case 'ss调试日志':
-                    config_date.ss_debugLog = value === '开'
-                    break
+                    if (value === '开') {
+                        await redis.set('sf_ss_debug_log', '1');
+                    } else {
+                        await redis.del('sf_ss_debug_log');
+                    }
+                    await e.reply(`ss调试日志已设置：${value}`, true);
+                    return; // 直接 return，不需要走后面的 Config.setConfig
                 default:
                     return
             }
@@ -1281,8 +1286,11 @@ export class SF_Painting extends plugin {
                 'Content-Type': 'application/json'
             };
 
+            // 从 Redis 强行读取调试开关
+            const isDebug = await redis.get('sf_ss_debug_log');
+
             // 【调试日志 1】输出完整的请求体，确认是否带了 tools
-            if (config_date.ss_debugLog) {
+            if (isDebug) {
                 logger.mark(`\n========== [ss调试模式] 请求体 ==========\nAPI: ${apiUrl}\n${JSON.stringify(finalRequestBody, null, 2)}\n=======================================`);
             }
 
@@ -1295,7 +1303,7 @@ export class SF_Painting extends plugin {
             const data = await response.json()
 
             // 【调试日志 2】输出大模型完整的返回 JSON
-            if (config_date.ss_debugLog) {
+            if (isDebug) {
                 logger.mark(`\n========== [ss调试模式] 原始返回 ==========\n${JSON.stringify(data, null, 2)}\n=========================================`);
             }
 
@@ -1336,7 +1344,7 @@ export class SF_Painting extends plugin {
                 }
 
                 // 【调试日志 3】输出最终提取到的内容，排查提取逻辑是否漏了东西
-                if (config_date.ss_debugLog) {
+                if (isDebug) {
                     logger.mark(`\n========== [ss调试模式] 提取结果 ==========\n👉 思考过程字数: ${reasoningContent.length}\n👉 来源链接数量: ${sources.length}\n👉 最终正文字数: ${finalContent.length}\n=========================================`);
                 }
 
