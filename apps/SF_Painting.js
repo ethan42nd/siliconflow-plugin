@@ -1294,24 +1294,46 @@ export class SF_Painting extends plugin {
 
             // 【核心修改】针对火山 responses 接口的特定解析器
             if (isVolcesResponses) {
-                // 成功返回时的解析 (兼容 output.text 或 content 字段)
-                if (data.output && (data.output.text || data.output.content)) {
-                    let finalContent = data.output.text || data.output.content;
-                    
-                    // 提取并拼接 AI 的“思考过程”
-                    if (data.reasoning_summary_text) {
-                        finalContent = `🤔 [思考过程]\n${data.reasoning_summary_text}\n\n💬 [最终回答]\n${finalContent}`;
-                    } else if (data.output.reasoning_summary && data.output.reasoning_summary.text) {
-                        finalContent = `🤔 [思考过程]\n${data.output.reasoning_summary.text}\n\n💬 [最终回答]\n${finalContent}`;
+                let finalContent = "";
+                let reasoningContent = "";
+
+                // 解析豆包 Responses 接口返回的数组结构
+                if (Array.isArray(data.output)) {
+                    for (const item of data.output) {
+                        // 1. 提取思考过程 (可能有多个阶段的思考)
+                        if (item.type === "reasoning" && item.summary && item.summary.length > 0) {
+                            reasoningContent += item.summary[0].text + "\n";
+                        } 
+                        // 2. 提取最终的回答文本
+                        else if (item.type === "message" && item.role === "assistant" && Array.isArray(item.content)) {
+                            for (const contentItem of item.content) {
+                                if (contentItem.type === "output_text" && contentItem.text) {
+                                    finalContent += contentItem.text;
+                                }
+                            }
+                        }
                     }
-                    
+                } 
+                // 兼容可能存在的极简对象结构
+                else if (data.output && (data.output.text || data.output.content)) {
+                    finalContent = data.output.text || data.output.content;
+                    reasoningContent = data.reasoning_summary_text || (data.output.reasoning_summary && data.output.reasoning_summary.text) || "";
+                }
+
+                // 如果成功提取到了正文
+                if (finalContent) {
+                    let responseText = finalContent;
+                    if (reasoningContent) {
+                        responseText = `🤔 [思考过程]\n${reasoningContent.trim()}\n\n💬 [最终回答]\n${finalContent}`;
+                    }
                     return {
-                        content: finalContent,
+                        content: responseText,
                         imageBase64Array: null,
                         isError: false
                     };
-                } else if (data.error) {
-                    // 错误拦截
+                } 
+                // 错误拦截
+                else if (data.error) {
                     logger.warn("[sf插件]火山私有接口调用错误：\n", JSON.stringify(data));
                     return {
                         content: `[API错误] ${data.error.message || JSON.stringify(data.error)}`,
