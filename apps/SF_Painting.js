@@ -1240,7 +1240,7 @@ export class SF_Painting extends plugin {
             ];
             logger.debug(`[sf插件] 检测到豆包模型，已开启原生 web_search 联网搜索`);
         }
-        
+
         logger.debug(`[sf插件] 生成提示词 - 使用模型: ${requestBody.model}`);
 
         // 统一使用 formatContextForOpenAI 函数处理历史对话和首次对话
@@ -1253,27 +1253,86 @@ export class SF_Painting extends plugin {
         requestBody.messages.push(...userMessages);
 
         try {
-            // 处理API URL，移除末尾斜杠并确保正确路径
             let apiUrl = removeTrailingSlash(apiBaseUrl || config_date.sfBaseUrl);
+            let finalRequestBody = requestBody;
+            let isVolcesResponses = false;
 
-            // 如果不包含 /chat/completions 就添加
-            if (!apiUrl.match(/\/chat\/completions$/)) {
-                apiUrl = `${apiUrl}/chat/completions`;
+            // 【核心修改】检测用户是否指定了火山的专有 responses 接口
+            if (apiUrl.endsWith("/responses")) {
+                isVolcesResponses = true;
+                
+                // 将标准的 messages 格式转换为火山专有 input 格式
+                const formattedInput = requestBody.messages.map(msg => ({
+                    role: msg.role,
+                    content: typeof msg.content === 'string' 
+                        ? [{ type: "input_text", text: msg.content }] 
+                        : msg.content // 暂不深度处理图片数组等复杂多模态
+                }));
+
+                // 重新组装为火山引擎要求的专有请求体
+                finalRequestBody = {
+                    model: requestBody.model,
+                    input: formattedInput,
+                    tools: [
+                        {
+                            type: "web_search",
+                            limit: 10,
+                            sources: ["toutiao", "douyin", "moji"]
+                        }
+                    ],
+                    stream: false // 插件框架目前处理非流式
+                };
+                logger.debug(`[sf插件] 已触发火山引擎专有 responses 协议并注入 web_search`);
+            } else {
+                // 原有逻辑：强制补全标准协议后缀
+                if (!apiUrl.match(/\/chat\/completions$/)) {
+                    apiUrl = `${apiUrl}/chat/completions`;
+                }
             }
 
-            // 构造请求头，为OpenRouter等API添加必要的头部
             const headers = {
                 'Authorization': `Bearer ${use_sf_key}`,
                 'Content-Type': 'application/json'
             };
 
+            // 发送已转换的 finalRequestBody
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: headers,
-                body: JSON.stringify(requestBody)
+                body: JSON.stringify(finalRequestBody) 
             })
 
             const data = await response.json()
+
+            // 【核心修改】针对火山 responses 接口的特定解析器
+            if (isVolcesResponses) {
+                // 成功返回时的解析 (兼容 output.text 或 content 字段)
+                if (data.output && (data.output.text || data.output.content)) {
+                    let finalContent = data.output.text || data.output.content;
+                    
+                    // 提取并拼接 AI 的“思考过程”
+                    if (data.reasoning_summary_text) {
+                        finalContent = `🤔 [思考过程]\n${data.reasoning_summary_text}\n\n💬 [最终回答]\n${finalContent}`;
+                    } else if (data.output.reasoning_summary && data.output.reasoning_summary.text) {
+                        finalContent = `🤔 [思考过程]\n${data.output.reasoning_summary.text}\n\n💬 [最终回答]\n${finalContent}`;
+                    }
+                    
+                    return {
+                        content: finalContent,
+                        imageBase64Array: null,
+                        isError: false
+                    };
+                } else if (data.error) {
+                    // 错误拦截
+                    logger.warn("[sf插件]火山私有接口调用错误：\n", JSON.stringify(data));
+                    return {
+                        content: `[API错误] ${data.error.message || JSON.stringify(data.error)}`,
+                        imageBase64Array: null,
+                        isError: true
+                    };
+                }
+            }
+
             // logger.mark(`[sf插件]API返回 data：\n` + JSON.stringify(data, createTruncatingReplacer(), 2));
 
             if (data?.choices?.[0]?.message?.content) {
