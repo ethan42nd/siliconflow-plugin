@@ -57,7 +57,7 @@ export class SF_Painting extends plugin {
                     fnc: 'sf_draw'
                 },
                 {
-                    reg: '^#(sf|SF|siliconflow|硅基流动)设置(画图key|翻译key|翻译baseurl|翻译模型|生成提示词|推理步数|fish发音人|ss图片模式|ggkey|ggbaseurl|gg图片模式|上下文|ss转发消息|gg转发消息|gg搜索|ss引用原消息|gg引用原消息|ws服务|ss转发思考|群聊多人对话|ss图片上传|gg图片上传|ss必需图片|gg必需图片|ss必须返回图片|gg必须返回图片|ss群聊聊天记录条数|gg群聊聊天记录条数|ss调试日志)([\s\S]*)',
+                    reg: '^#(sf|SF|siliconflow|硅基流动)设置(画图key|翻译key|翻译baseurl|翻译模型|生成提示词|推理步数|fish发音人|ss图片模式|ggkey|ggbaseurl|gg图片模式|上下文|ss转发消息|gg转发消息|gg搜索|ss引用原消息|gg引用原消息|ws服务|ss转发思考|群聊多人对话|ss图片上传|gg图片上传|ss必需图片|gg必需图片|ss必须返回图片|gg必须返回图片|ss群聊聊天记录条数|gg群聊聊天记录条数|ss调试日志|ss转发参考链接)([\s\S]*)',
                     fnc: 'sf_setConfig',
                     permission: 'master'
                 },
@@ -533,13 +533,23 @@ export class SF_Painting extends plugin {
                     break
                 // 【新增】调试日志开关（绕过 Config 拦截，直接存入 Redis）
                 case 'ss调试日志':
-                    if (value === '开') {
+                    // 使用 trim() 消除前面可能带有的空格
+                    if (value.trim() === '开') {
                         await redis.set('sf_ss_debug_log', '1');
                     } else {
                         await redis.del('sf_ss_debug_log');
                     }
-                    await e.reply(`ss调试日志已设置：${value}`, true);
-                    return; // 直接 return，不需要走后面的 Config.setConfig
+                    await e.reply(`ss调试日志已设置：${value.trim()}`, true);
+                    return;
+                // 【新增】参考链接独立开关（绕过 Config 拦截，直接存入 Redis）
+                case 'ss转发参考链接':
+                    if (value.trim() === '开') {
+                        await redis.set('sf_ss_forward_reference', '1');
+                    } else {
+                        await redis.set('sf_ss_forward_reference', '0'); // 明确存为 0 代表关闭
+                    }
+                    await e.reply(`ss转发参考链接已设置：${value.trim()}`, true);
+                    return;
                 default:
                     return
             }
@@ -979,29 +989,49 @@ export class SF_Painting extends plugin {
         // 移除 CQ
         answer = removeCQCode(answer);
 
-        let thinkingContent = '';
+        let rawThinkingContent = '';
         let cleanedAnswer = answer;
 
-        // 修复原版判断 Bug，提取独立传入的思考过程
+        // 提取独立传入的思考过程
         if (reasoning_content) {
-            thinkingContent = reasoning_content;
+            rawThinkingContent = reasoning_content;
         } else {
             const thinkMatch = answer.match(/<think>([\s\S]*?)<\/think>/);
             if (thinkMatch) {
-                thinkingContent = thinkMatch[1].trim();
+                rawThinkingContent = thinkMatch[1].trim();
                 cleanedAnswer = answer.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
             }
         }
 
-        // 【核心修改】将来源 url 格式化并无缝拼接到 thinkingContent，利用原生的转发逻辑发出
+        // 构建来源信息文本
+        let sourceText = "";
         if (sources && sources.length > 0) {
-            let sourceText = "\n\n📚 [参考信息来源]\n";
+            sourceText = "📚 [参考信息来源]\n";
             sources.forEach((source, index) => {
                 sourceText += `${index + 1}. ${source.title}\n链接：${source.url}\n内容简介：${source.summary}\n\n`;
             });
-            // 拼接到思考过程后面。如果没有思考过程，给一个默认提示以触发转发
-            thinkingContent = (thinkingContent || "🔍 [已完成联网检索]") + sourceText;
         }
+
+        // 【核心修正】从 Redis 读取转发参考链接开关（如果没设置过即为 null，默认当作开启）
+        const refSwitch = await redis.get('sf_ss_forward_reference');
+        const forwardReference = (refSwitch === null || refSwitch === '1');
+
+        // 根据开关组合最终需要转发的内容
+        let finalForwardContent = "";
+        
+        // 判定 1：如果开启了转发思考，且本次返回存在思考内容
+        if (forwardThinking && rawThinkingContent) {
+            finalForwardContent += `🤔 [思考过程]\n${rawThinkingContent}\n\n`;
+        }
+        
+        // 判定 2：如果开启了转发参考链接，且本次返回存在联网来源
+        if (forwardReference && sourceText) {
+            finalForwardContent += sourceText;
+        }
+        
+        // 【偷天换日】将组合好的内容赋值给 thinkingContent，并强制覆盖底层发送标记
+        thinkingContent = finalForwardContent.trim();
+        forwardThinking = thinkingContent.length > 0;
 
         // 保存AI回复
         if (config_date.gg_ss_useContext && !paintModel) {
