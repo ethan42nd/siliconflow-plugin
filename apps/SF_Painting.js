@@ -957,7 +957,7 @@ export class SF_Painting extends plugin {
         }
 
         logger.info(`[sf prompt]${'[图片]'.repeat(e.img?.length || 0)}${toAiMessage}`)
-        let { content: answer, imageBase64Array: generatedImageArray, isError } = await this.generatePrompt(toAiMessage, use_sf_key, config_date, true, apiBaseUrl, model, opt, historyMessages, e)
+        let { content: answer, imageBase64Array: generatedImageArray, isError, reasoning_content, sources } = await this.generatePrompt(toAiMessage, use_sf_key, config_date, true, apiBaseUrl, model, opt, historyMessages, e)
 
         if (e.sf_is_from_first_person_call)
             ChatCooldown.end(e.user_id, e.group_id)
@@ -970,21 +970,28 @@ export class SF_Painting extends plugin {
         // 移除 CQ
         answer = removeCQCode(answer);
 
-        // 处理思考过程
         let thinkingContent = '';
         let cleanedAnswer = answer;
 
-        // 尝试从reasoning_content中获取思考过程
-        if (answer.reasoning_content) {
-            thinkingContent = answer.reasoning_content;
-            cleanedAnswer = answer.content;
+        // 修复原版判断 Bug，提取独立传入的思考过程
+        if (reasoning_content) {
+            thinkingContent = reasoning_content;
         } else {
-            // 尝试从<think>标签中获取思考过程
             const thinkMatch = answer.match(/<think>([\s\S]*?)<\/think>/);
             if (thinkMatch) {
                 thinkingContent = thinkMatch[1].trim();
                 cleanedAnswer = answer.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
             }
+        }
+
+        // 【核心修改】将来源 url 格式化并无缝拼接到 thinkingContent，利用原生的转发逻辑发出
+        if (sources && sources.length > 0) {
+            let sourceText = "\n\n📚 [参考信息来源]\n";
+            sources.forEach((source, index) => {
+                sourceText += `${index + 1}. ${source.title}\n链接：${source.url}\n内容简介：${source.summary}\n\n`;
+            });
+            // 拼接到思考过程后面。如果没有思考过程，给一个默认提示以触发转发
+            thinkingContent = (thinkingContent || "🔍 [已完成联网检索]") + sourceText;
         }
 
         // 保存AI回复
@@ -1292,38 +1299,34 @@ export class SF_Painting extends plugin {
 
             const data = await response.json()
 
-            // 【核心修改】针对火山 responses 接口的特定解析器 (增强版：支持来源提取与转发)
+            // 【核心修改】针对火山 responses 接口的特定解析器
             if (isVolcesResponses) {
                 let finalContent = "";
                 let reasoningContent = "";
-                let sourcesText = "";
-                let sourceIndex = 1;
+                let sources = [];
 
-                // 解析豆包 Responses 接口返回的数组结构
                 if (Array.isArray(data.output)) {
                     for (const item of data.output) {
                         // 1. 提取思考过程
                         if (item.type === "reasoning" && item.summary && item.summary.length > 0) {
                             reasoningContent += item.summary[0].text + "\n";
                         } 
-                        // 2. 提取最终的回答文本和参考链接
+                        // 2. 提取最终的正文和参考链接
                         else if (item.type === "message" && item.role === "assistant" && Array.isArray(item.content)) {
                             for (const contentItem of item.content) {
                                 if (contentItem.type === "output_text" && contentItem.text) {
                                     finalContent += contentItem.text;
                                     
-                                    // 提取来源 (annotations)
+                                    // 深度提取参考来源
                                     if (contentItem.annotations && Array.isArray(contentItem.annotations)) {
                                         for (const anno of contentItem.annotations) {
                                             if (anno.type === "url_citation") {
-                                                const title = anno.title || anno.site_name || "参考网页";
-                                                let summary = anno.summary || "无内容简介";
-                                                // 限制简介长度，避免转发消息过长导致发送失败
-                                                if (summary.length > 150) {
-                                                    summary = summary.substring(0, 150) + "...";
-                                                }
-                                                sourcesText += `${sourceIndex}. ${title}\n链接：${anno.url}\n内容简介：${summary}\n\n`;
-                                                sourceIndex++;
+                                                sources.push({
+                                                    title: anno.title || anno.site_name || "参考网页",
+                                                    url: anno.url,
+                                                    // 限制简介长度，避免腾讯风控拦截转发消息
+                                                    summary: anno.summary ? (anno.summary.length > 150 ? anno.summary.substring(0, 150) + "..." : anno.summary) : "无内容简介"
+                                                });
                                             }
                                         }
                                     }
@@ -1332,35 +1335,21 @@ export class SF_Painting extends plugin {
                         }
                     }
                 } 
-                // 兼容可能存在的极简对象结构
                 else if (data.output && (data.output.text || data.output.content)) {
                     finalContent = data.output.text || data.output.content;
                     reasoningContent = data.reasoning_summary_text || (data.output.reasoning_summary && data.output.reasoning_summary.text) || "";
                 }
 
-                // 如果成功提取到了正文
                 if (finalContent) {
-                    let responseText = finalContent;
-                    
-                    // 如果有思考过程或来源，用 <think> 标签包裹
-                    // 外部的 sf_chat 函数会自动将其剥离，并作为转发消息发送
-                    if (reasoningContent || sourcesText) {
-                        let thinkBlock = reasoningContent.trim();
-                        if (sourcesText) {
-                            thinkBlock += "\n\n【📚 参考信息来源】\n" + sourcesText.trim();
-                        }
-                        responseText = `<think>\n${thinkBlock}\n</think>\n${finalContent}`;
-                    }
-                    
                     return {
-                        content: responseText,
+                        content: finalContent,
                         imageBase64Array: null,
-                        isError: false
+                        isError: false,
+                        reasoning_content: reasoningContent.trim(), // 独立传出思考过程
+                        sources: sources // 独立传出参考来源
                     };
                 } 
-                // 错误拦截
                 else if (data.error) {
-                    logger.warn("[sf插件]火山私有接口调用错误：\n", JSON.stringify(data));
                     return {
                         content: `[API错误] ${data.error.message || JSON.stringify(data.error)}`,
                         imageBase64Array: null,
