@@ -1292,23 +1292,41 @@ export class SF_Painting extends plugin {
 
             const data = await response.json()
 
-            // 【核心修改】针对火山 responses 接口的特定解析器
+            // 【核心修改】针对火山 responses 接口的特定解析器 (增强版：支持来源提取与转发)
             if (isVolcesResponses) {
                 let finalContent = "";
                 let reasoningContent = "";
+                let sourcesText = "";
+                let sourceIndex = 1;
 
                 // 解析豆包 Responses 接口返回的数组结构
                 if (Array.isArray(data.output)) {
                     for (const item of data.output) {
-                        // 1. 提取思考过程 (可能有多个阶段的思考)
+                        // 1. 提取思考过程
                         if (item.type === "reasoning" && item.summary && item.summary.length > 0) {
                             reasoningContent += item.summary[0].text + "\n";
                         } 
-                        // 2. 提取最终的回答文本
+                        // 2. 提取最终的回答文本和参考链接
                         else if (item.type === "message" && item.role === "assistant" && Array.isArray(item.content)) {
                             for (const contentItem of item.content) {
                                 if (contentItem.type === "output_text" && contentItem.text) {
                                     finalContent += contentItem.text;
+                                    
+                                    // 提取来源 (annotations)
+                                    if (contentItem.annotations && Array.isArray(contentItem.annotations)) {
+                                        for (const anno of contentItem.annotations) {
+                                            if (anno.type === "url_citation") {
+                                                const title = anno.title || anno.site_name || "参考网页";
+                                                let summary = anno.summary || "无内容简介";
+                                                // 限制简介长度，避免转发消息过长导致发送失败
+                                                if (summary.length > 150) {
+                                                    summary = summary.substring(0, 150) + "...";
+                                                }
+                                                sourcesText += `${sourceIndex}. ${title}\n链接：${anno.url}\n内容简介：${summary}\n\n`;
+                                                sourceIndex++;
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1323,9 +1341,17 @@ export class SF_Painting extends plugin {
                 // 如果成功提取到了正文
                 if (finalContent) {
                     let responseText = finalContent;
-                    if (reasoningContent) {
-                        responseText = `🤔 [思考过程]\n${reasoningContent.trim()}\n\n💬 [最终回答]\n${finalContent}`;
+                    
+                    // 如果有思考过程或来源，用 <think> 标签包裹
+                    // 外部的 sf_chat 函数会自动将其剥离，并作为转发消息发送
+                    if (reasoningContent || sourcesText) {
+                        let thinkBlock = reasoningContent.trim();
+                        if (sourcesText) {
+                            thinkBlock += "\n\n【📚 参考信息来源】\n" + sourcesText.trim();
+                        }
+                        responseText = `<think>\n${thinkBlock}\n</think>\n${finalContent}`;
                     }
+                    
                     return {
                         content: responseText,
                         imageBase64Array: null,
