@@ -1229,18 +1229,6 @@ export class SF_Painting extends plugin {
             stream: false
         };
 
-        // 【新增】联网搜索配置判断：如果是火山引擎(豆包)的API或模型，自动注入 web_search
-        const checkBaseUrl = apiBaseUrl || config_date.sfBaseUrl || "";
-        if (checkBaseUrl.includes("volces.com") || requestBody.model.includes("doubao")) {
-            requestBody.tools = [
-                {
-                    type: "web_search",
-                    max_keyword: 2
-                }
-            ];
-            logger.debug(`[sf插件] 检测到豆包模型，已开启原生 web_search 联网搜索`);
-        }
-
         logger.debug(`[sf插件] 生成提示词 - 使用模型: ${requestBody.model}`);
 
         // 统一使用 formatContextForOpenAI 函数处理历史对话和首次对话
