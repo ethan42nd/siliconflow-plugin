@@ -57,7 +57,7 @@ export class SF_Painting extends plugin {
                     fnc: 'sf_draw'
                 },
                 {
-                    reg: '^#(sf|SF|siliconflow|硅基流动)设置(画图key|翻译key|翻译baseurl|翻译模型|生成提示词|推理步数|fish发音人|ss图片模式|ggkey|ggbaseurl|gg图片模式|上下文|ss转发消息|gg转发消息|gg搜索|ss引用原消息|gg引用原消息|ws服务|ss转发思考|群聊多人对话|ss图片上传|gg图片上传)',
+                    reg: '^#(sf|SF|siliconflow|硅基流动)设置(画图key|翻译key|翻译baseurl|翻译模型|生成提示词|推理步数|fish发音人|ss图片模式|ggkey|ggbaseurl|gg图片模式|上下文|ss转发消息|gg转发消息|gg搜索|ss引用原消息|gg引用原消息|ws服务|ss转发思考|群聊多人对话|ss图片上传|gg图片上传|ss必需图片|gg必需图片|ss必须返回图片|gg必须返回图片|ss群聊聊天记录条数|gg群聊聊天记录条数|ss调试日志)([\s\S]*)',
                     fnc: 'sf_setConfig',
                     permission: 'master'
                 },
@@ -530,6 +530,10 @@ export class SF_Painting extends plugin {
                     break
                 case 'gg图片上传':
                     config_date.gg_enableImageUpload = value === '开'
+                    break
+                // 【新增】调试日志开关
+                case 'ss调试日志':
+                    config_date.ss_debugLog = value === '开'
                     break
                 default:
                     return
@@ -1252,34 +1256,21 @@ export class SF_Painting extends plugin {
             let finalRequestBody = requestBody;
             let isVolcesResponses = false;
 
-            // 【核心修改】检测用户是否指定了火山的专有 responses 接口
             if (apiUrl.endsWith("/responses")) {
                 isVolcesResponses = true;
-                
-                // 将标准的 messages 格式转换为火山专有 input 格式
                 const formattedInput = requestBody.messages.map(msg => ({
                     role: msg.role,
                     content: typeof msg.content === 'string' 
                         ? [{ type: "input_text", text: msg.content }] 
-                        : msg.content // 暂不深度处理图片数组等复杂多模态
+                        : msg.content
                 }));
-
-                // 重新组装为火山引擎要求的专有请求体
                 finalRequestBody = {
                     model: requestBody.model,
                     input: formattedInput,
-                    tools: [
-                        {
-                            type: "web_search",
-                            limit: 10,
-                            sources: ["toutiao", "douyin", "moji"]
-                        }
-                    ],
-                    stream: false // 插件框架目前处理非流式
+                    tools: [{ type: "web_search", limit: 10, sources: ["toutiao", "douyin", "moji"] }],
+                    stream: false 
                 };
-                logger.debug(`[sf插件] 已触发火山引擎专有 responses 协议并注入 web_search`);
             } else {
-                // 原有逻辑：强制补全标准协议后缀
                 if (!apiUrl.match(/\/chat\/completions$/)) {
                     apiUrl = `${apiUrl}/chat/completions`;
                 }
@@ -1290,7 +1281,11 @@ export class SF_Painting extends plugin {
                 'Content-Type': 'application/json'
             };
 
-            // 发送已转换的 finalRequestBody
+            // 【调试日志 1】输出完整的请求体，确认是否带了 tools
+            if (config_date.ss_debugLog) {
+                logger.mark(`\n========== [ss调试模式] 请求体 ==========\nAPI: ${apiUrl}\n${JSON.stringify(finalRequestBody, null, 2)}\n=======================================`);
+            }
+
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: headers,
@@ -1299,7 +1294,11 @@ export class SF_Painting extends plugin {
 
             const data = await response.json()
 
-            // 【核心修改】针对火山 responses 接口的特定解析器
+            // 【调试日志 2】输出大模型完整的返回 JSON
+            if (config_date.ss_debugLog) {
+                logger.mark(`\n========== [ss调试模式] 原始返回 ==========\n${JSON.stringify(data, null, 2)}\n=========================================`);
+            }
+
             if (isVolcesResponses) {
                 let finalContent = "";
                 let reasoningContent = "";
@@ -1307,24 +1306,20 @@ export class SF_Painting extends plugin {
 
                 if (Array.isArray(data.output)) {
                     for (const item of data.output) {
-                        // 1. 提取思考过程
                         if (item.type === "reasoning" && item.summary && item.summary.length > 0) {
                             reasoningContent += item.summary[0].text + "\n";
                         } 
-                        // 2. 提取最终的正文和参考链接
                         else if (item.type === "message" && item.role === "assistant" && Array.isArray(item.content)) {
                             for (const contentItem of item.content) {
                                 if (contentItem.type === "output_text" && contentItem.text) {
                                     finalContent += contentItem.text;
                                     
-                                    // 深度提取参考来源
                                     if (contentItem.annotations && Array.isArray(contentItem.annotations)) {
                                         for (const anno of contentItem.annotations) {
                                             if (anno.type === "url_citation") {
                                                 sources.push({
                                                     title: anno.title || anno.site_name || "参考网页",
                                                     url: anno.url,
-                                                    // 限制简介长度，避免腾讯风控拦截转发消息
                                                     summary: anno.summary ? (anno.summary.length > 150 ? anno.summary.substring(0, 150) + "..." : anno.summary) : "无内容简介"
                                                 });
                                             }
@@ -1340,13 +1335,18 @@ export class SF_Painting extends plugin {
                     reasoningContent = data.reasoning_summary_text || (data.output.reasoning_summary && data.output.reasoning_summary.text) || "";
                 }
 
+                // 【调试日志 3】输出最终提取到的内容，排查提取逻辑是否漏了东西
+                if (config_date.ss_debugLog) {
+                    logger.mark(`\n========== [ss调试模式] 提取结果 ==========\n👉 思考过程字数: ${reasoningContent.length}\n👉 来源链接数量: ${sources.length}\n👉 最终正文字数: ${finalContent.length}\n=========================================`);
+                }
+
                 if (finalContent) {
                     return {
                         content: finalContent,
                         imageBase64Array: null,
                         isError: false,
-                        reasoning_content: reasoningContent.trim(), // 独立传出思考过程
-                        sources: sources // 独立传出参考来源
+                        reasoning_content: reasoningContent.trim(),
+                        sources: sources
                     };
                 } 
                 else if (data.error) {
@@ -1357,6 +1357,8 @@ export class SF_Painting extends plugin {
                     };
                 }
             }
+
+            // ... 下面保留原有的 data?.choices?.[0]?.message?.content 等逻辑不变 ...
 
             // logger.mark(`[sf插件]API返回 data：\n` + JSON.stringify(data, createTruncatingReplacer(), 2));
 
