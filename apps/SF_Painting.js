@@ -142,7 +142,7 @@ export class SF_Painting extends plugin {
                 },
                 {
                     /** At模式 */
-                    reg: '^[^#][sS]*',
+                    reg: '^[^#][\\s\\S]*',
                     fnc: 'atChatMode',
                     log: false
                 },
