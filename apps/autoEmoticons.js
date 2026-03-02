@@ -247,7 +247,7 @@ export class autoEmoticons extends plugin {
                     fnc: 'deleteEmoji',
                 },
                 {
-                    reg: '^#表情包配置$',
+                    reg: '^#群自动表情包配置$',
                     fnc: 'showConfig',
                 },
                 {
