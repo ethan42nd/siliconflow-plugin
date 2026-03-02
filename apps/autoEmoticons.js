@@ -21,18 +21,26 @@ const watchers = new Map()
 let sharedPicturesWatcher = null
 
 /**
- * 检查当前时间是否在允许的生效时间范围内
+ * 检查当前时间是否在允许的生效时间范围内 (增强版：强制北京时间 + 容错)
  * @param {Object} config 配置对象
  * @returns {boolean}
  */
 function isWithinActiveTime(config) {
     if (!config.autoEmoticons.timeRestrictionEnabled) return true;
 
+    // 获取当前的 UTC+8 (北京时间) 时间，无视服务器本地时区
     const now = new Date();
-    const currentTime = now.getHours() * 60 + now.getMinutes();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const beijingTime = new Date(utc + (3600000 * 8));
 
-    const parseTime = (timeStr) => {
-        if (!timeStr) return 0;
+    const currentTime = beijingTime.getHours() * 60 + beijingTime.getMinutes();
+
+    const parseTime = (timeVal) => {
+        if (!timeVal) return 0;
+        const timeStr = String(timeVal); // 强制转换为字符串，防止在 yaml 里错填成纯数字
+        if (!timeStr.includes(':')) {
+            return (Number(timeStr) || 0) * 60;
+        }
         const [hours, minutes] = timeStr.split(':').map(Number);
         return (hours || 0) * 60 + (minutes || 0);
     };
