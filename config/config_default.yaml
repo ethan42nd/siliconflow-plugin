@@ -50,6 +50,8 @@ ss_mustReturnImgRetriesTimes: 0 # 必须返回图片
 ss_groupContextLength: 0 # 读取近期群聊天记录条数
 ss_quoteMessage: true # 是否引用原消息
 ss_forwardThinking: false # 是否转发思考过程
+ss_forwardReference: true # 是否转发参考链接
+ss_debugLog: false # 是否开启调试日志
 ss_isOnlyMaster: false # 默认配置是否仅限主人使用
 ss_enableImageUpload: true # 是否启用图片上传功能
 ss_APIList: [] # ss接口列表

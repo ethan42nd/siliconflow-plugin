@@ -1261,6 +1261,20 @@ export function supportGuoba() {
           bottomHelpMessage: "是否转发思考过程",
           component: "Switch",
         },
+        // --- ⬇️ 新增下方两段代码 ⬇️ ---
+        {
+          field: "ss_forwardReference",
+          label: "[#ss]转发参考链接",
+          bottomHelpMessage: "是否在触发联网搜索时，独立转发参考链接信息卡片",
+          component: "Switch",
+        },
+        {
+          field: "ss_debugLog",
+          label: "[#ss]调试日志",
+          bottomHelpMessage: "开启后会在 Yunzai 控制台输出完整的 API 请求和响应抓包日志，用于排查问题",
+          component: "Switch",
+        },
+        // --- ⬆️ 新增上方两段代码 ⬆️ ---
         {
           field: "ss_isOnlyMaster",
           label: "[#ss]仅限主人使用",

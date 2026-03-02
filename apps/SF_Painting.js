@@ -531,25 +531,12 @@ export class SF_Painting extends plugin {
                 case 'gg图片上传':
                     config_date.gg_enableImageUpload = value === '开'
                     break
-                // 【新增】调试日志开关（绕过 Config 拦截，直接存入 Redis）
                 case 'ss调试日志':
-                    // 使用 trim() 消除前面可能带有的空格
-                    if (value.trim() === '开') {
-                        await redis.set('sf_ss_debug_log', '1');
-                    } else {
-                        await redis.del('sf_ss_debug_log');
-                    }
-                    await e.reply(`ss调试日志已设置：${value.trim()}`, true);
-                    return;
-                // 【新增】参考链接独立开关（绕过 Config 拦截，直接存入 Redis）
+                    config_date.ss_debugLog = value.trim() === '开';
+                    break;
                 case 'ss转发参考链接':
-                    if (value.trim() === '开') {
-                        await redis.set('sf_ss_forward_reference', '1');
-                    } else {
-                        await redis.set('sf_ss_forward_reference', '0'); // 明确存为 0 代表关闭
-                    }
-                    await e.reply(`ss转发参考链接已设置：${value.trim()}`, true);
-                    return;
+                    config_date.ss_forwardReference = value.trim() === '开';
+                    break;
                 default:
                     return
             }
@@ -1012,9 +999,8 @@ export class SF_Painting extends plugin {
             });
         }
 
-        // 【核心修正】从 Redis 读取转发参考链接开关（如果没设置过即为 null，默认当作开启）
-        const refSwitch = await redis.get('sf_ss_forward_reference');
-        const forwardReference = (refSwitch === null || refSwitch === '1');
+        // 【正式版】直接从原生配置读取参考链接转发开关（默认为开）
+        const forwardReference = config_date.ss_forwardReference !== false;
 
         // 根据开关组合最终需要转发的内容
         let finalForwardContent = "";
@@ -1352,11 +1338,8 @@ export class SF_Painting extends plugin {
                 'Content-Type': 'application/json'
             };
 
-            // 从 Redis 强行读取调试开关
-            const isDebug = await redis.get('sf_ss_debug_log');
-
             // 【调试日志 1】输出完整的请求体，确认是否带了 tools
-            if (isDebug) {
+            if (config_date.ss_debugLog) {
                 logger.mark(`\n========== [ss调试模式] 请求体 ==========\nAPI: ${apiUrl}\n${JSON.stringify(finalRequestBody, null, 2)}\n=======================================`);
             }
 
@@ -1369,7 +1352,7 @@ export class SF_Painting extends plugin {
             const data = await response.json()
 
             // 【调试日志 2】输出大模型完整的返回 JSON
-            if (isDebug) {
+            if (config_date.ss_debugLog) {
                 logger.mark(`\n========== [ss调试模式] 原始返回 ==========\n${JSON.stringify(data, null, 2)}\n=========================================`);
             }
 
@@ -1410,7 +1393,7 @@ export class SF_Painting extends plugin {
                 }
 
                 // 【调试日志 3】输出最终提取到的内容，排查提取逻辑是否漏了东西
-                if (isDebug) {
+                if (config_date.ss_debugLog) {
                     logger.mark(`\n========== [ss调试模式] 提取结果 ==========\n👉 思考过程字数: ${reasoningContent.length}\n👉 来源链接数量: ${sources.length}\n👉 最终正文字数: ${finalContent.length}\n=========================================`);
                 }
 
