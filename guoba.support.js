@@ -1768,6 +1768,30 @@ export function supportGuoba() {
           component: 'Switch'
         },
         {
+          field: 'autoEmoticons.timeRestrictionEnabled',
+          label: '启用时间限制',
+          bottomHelpMessage: '开启后，机器人仅在指定的活跃时间内发送表情包，防止半夜“闹鬼”',
+          component: 'Switch'
+        },
+        {
+          field: 'autoEmoticons.activeStartTime',
+          label: '活跃开始时间',
+          bottomHelpMessage: '格式：HH:mm，例如：08:00',
+          component: 'Input',
+          componentProps: {
+            placeholder: '08:00',
+          }
+        },
+        {
+          field: 'autoEmoticons.activeEndTime',
+          label: '活跃结束时间',
+          bottomHelpMessage: '格式：HH:mm，例如：23:00（支持跨夜，如 22:00 到 06:00）',
+          component: 'Input',
+          componentProps: {
+            placeholder: '23:00',
+          }
+        },
+        {
           field: 'autoEmoticons.confirmCount',
           label: '表情确认次数',
           bottomHelpMessage: '在记录时间内接收多少次才保存表情包',

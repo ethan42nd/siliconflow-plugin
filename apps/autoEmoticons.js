@@ -21,6 +21,35 @@ const watchers = new Map()
 let sharedPicturesWatcher = null
 
 /**
+ * 检查当前时间是否在允许的生效时间范围内
+ * @param {Object} config 配置对象
+ * @returns {boolean}
+ */
+function isWithinActiveTime(config) {
+    if (!config.autoEmoticons.timeRestrictionEnabled) return true;
+
+    const now = new Date();
+    const currentTime = now.getHours() * 60 + now.getMinutes();
+
+    const parseTime = (timeStr) => {
+        if (!timeStr) return 0;
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return (hours || 0) * 60 + (minutes || 0);
+    };
+
+    const startTime = parseTime(config.autoEmoticons.activeStartTime || "08:00");
+    const endTime = parseTime(config.autoEmoticons.activeEndTime || "23:00");
+
+    if (startTime <= endTime) {
+        // 正常白天区间：如 08:00 - 23:00
+        return currentTime >= startTime && currentTime <= endTime;
+    } else {
+        // 跨夜区间：如 22:00 - 06:00 (大于晚上10点，或小于早上6点)
+        return currentTime >= startTime || currentTime <= endTime;
+    }
+}
+
+/**
  * 初始化共享图片目录监视器
  */
 function initSharedPicturesWatcher() {
@@ -365,6 +394,11 @@ export class autoEmoticons extends plugin {
         const lastSendTime = await redis.get(cooldownKey)
         const now = Date.now()
 
+        // 【新增时间拦截】如果不在活跃时间内，直接终止发送逻辑
+        if (!isWithinActiveTime(config)) {
+            return false;
+        }
+
         if (lastSendTime && (now - parseInt(lastSendTime)) < (config.autoEmoticons.sendCD * 1000)) {
             const remainingTime = Math.ceil(((parseInt(lastSendTime) + (config.autoEmoticons.sendCD * 1000)) - now) / 1000)
             logger.debug(`[autoEmoticons] 群 ${groupId} 还在冷却中，剩余 ${remainingTime} 秒`)
@@ -453,6 +487,11 @@ export class autoEmoticons extends plugin {
     async sendimg() {
         if (!useEmojiSave_Switch) return false;
         const config = Config.getConfig()
+
+        // 【新增时间拦截】如果不在活跃时间内，定时任务直接罢工
+        if (!isWithinActiveTime(config)) {
+            return false;
+        }
 
         // 初始化共享图片监视器
         initSharedPicturesWatcher()
@@ -669,6 +708,7 @@ export class autoEmoticons extends plugin {
             `　⏰ 发送冷却: ${cooldownStatus}`,
             '',
             '⚙️ 配置参数:',
+            `　⏰ 活跃时间: ${config.autoEmoticons.timeRestrictionEnabled ? `${config.autoEmoticons.activeStartTime} ~ ${config.autoEmoticons.activeEndTime}` : '全天24小时'}`,
             `　⏱️ 过期时间: ${formatTime(config.autoEmoticons.expireTimeInSeconds)}`,
             `　🔢 确认次数: ${config.autoEmoticons.confirmCount} 次`,
             `　🎲 发送概率: ${(config.autoEmoticons.replyRate * 100).toFixed(1)}%`,

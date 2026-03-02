@@ -112,6 +112,10 @@ autoEmoticons: {
     getBotByQQ_targetQQArr: [],
     # 自动发送表情包的冷却时间（秒）
     sendCD: 299,
+    # 生效时间限制相关
+    timeRestrictionEnabled: false,
+    activeStartTime: "08:00",
+    activeEndTime: "23:00",
     # 发送表情时的延迟 (毫秒)
     replyDelay: { min: 1000, max: 240000 },
   }
