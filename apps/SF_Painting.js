@@ -1015,7 +1015,7 @@ export class SF_Painting extends plugin {
         }
         
         // 【偷天换日】将组合好的内容赋值给 thinkingContent，并强制覆盖底层发送标记
-        thinkingContent = finalForwardContent.trim();
+        let thinkingContent = finalForwardContent.trim();
         forwardThinking = thinkingContent.length > 0;
 
         // 保存AI回复
