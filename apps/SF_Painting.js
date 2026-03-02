@@ -726,7 +726,7 @@ export class SF_Painting extends plugin {
         const isMaster = e.isMaster
 
         // 获取接口配置
-        let use_sf_key = "", apiBaseUrl = "", model = "", systemPrompt = "", useMarkdown = false, forwardMessage = true, quoteMessage = true, forwardThinking = false, enableImageUpload = true, mustNeedImgLength = 0, mustReturnImgRetriesTimes = 0, paintModel = false
+        let use_sf_key = "", apiBaseUrl = "", model = "", systemPrompt = "", useMarkdown = false, forwardMessage = true, quoteMessage = true, forwardThinking = false, forwardReference = true, enableImageUpload = true, mustNeedImgLength = 0, mustReturnImgRetriesTimes = 0, paintModel = false
         let cdtime = 0, dailyLimit = 0, unlimitedUsers = [], onlyGroupID = [], memberConfigName = 'ss_default', groupContextLength = 0
 
         // 根据用户身份选择使用的接口索引
@@ -755,6 +755,7 @@ export class SF_Painting extends plugin {
             systemPrompt = apiConfig.prompt || config_date.ss_Prompt || "You are a helpful assistant, you prefer to speak Chinese"
             useMarkdown = (typeof apiConfig.useMarkdown !== 'undefined') ? apiConfig.useMarkdown : false
             forwardMessage = (typeof apiConfig.forwardMessage !== 'undefined') ? apiConfig.forwardMessage : false
+            forwardReference = (typeof apiConfig.forwardReference !== 'undefined') ? apiConfig.forwardReference : (config_date.ss_forwardReference !== false)
             mustNeedImgLength = (typeof apiConfig.mustNeedImgLength !== 'undefined') ? apiConfig.mustNeedImgLength : 0
             mustReturnImgRetriesTimes = (typeof apiConfig.mustReturnImgRetriesTimes !== 'undefined') ? apiConfig.mustReturnImgRetriesTimes : 0
             paintModel = (typeof apiConfig.paintModel !== 'undefined') ? apiConfig.paintModel : false
@@ -781,6 +782,7 @@ export class SF_Painting extends plugin {
             systemPrompt = config_date.ss_Prompt || "You are a helpful assistant, you prefer to speak Chinese"
             useMarkdown = config_date.ss_useMarkdown
             forwardMessage = config_date.ss_forwardMessage
+            forwardReference = config_date.ss_forwardReference !== false
             mustNeedImgLength = config_date.ss_mustNeedImgLength
             mustReturnImgRetriesTimes = config_date.ss_mustReturnImgRetriesTimes
             groupContextLength = config_date.ss_groupContextLength
@@ -998,9 +1000,6 @@ export class SF_Painting extends plugin {
                 sourceText += `${index + 1}. ${source.title}\n链接：${source.url}\n内容简介：${source.summary}\n\n`;
             });
         }
-
-        // 【正式版】直接从原生配置读取参考链接转发开关（默认为开）
-        const forwardReference = config_date.ss_forwardReference !== false;
 
         // 根据开关组合最终需要转发的内容
         let finalForwardContent = "";
