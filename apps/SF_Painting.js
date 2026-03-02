@@ -1293,12 +1293,48 @@ export class SF_Painting extends plugin {
 
             if (apiUrl.endsWith("/responses")) {
                 isVolcesResponses = true;
-                const formattedInput = requestBody.messages.map(msg => ({
-                    role: msg.role,
-                    content: typeof msg.content === 'string' 
-                        ? [{ type: "input_text", text: msg.content }] 
-                        : msg.content
-                }));
+                
+                // 深度格式化 input，完美兼容图片+文字的多模态数组
+                const formattedInput = requestBody.messages.map(msg => {
+                    let newContent;
+                    if (typeof msg.content === 'string') {
+                        // 纯文本情况
+                        newContent = [{ type: "input_text", text: msg.content }];
+                    } else if (Array.isArray(msg.content)) {
+                        // 多模态数组情况（包含图片和文字）
+                        newContent = msg.content.map(item => {
+                            // 1. 转换文本块
+                            if (item.type === "text") {
+                                return { type: "input_text", text: item.text };
+                            }
+                            // 2. 转换图片块：适配火山专有格式
+                            else if (item.type === "image_url") {
+                                // 提取标准 OpenAI 格式中的 URL 字符串
+                                let actualUrl = "";
+                                if (typeof item.image_url === 'string') {
+                                    actualUrl = item.image_url;
+                                } else if (item.image_url && item.image_url.url) {
+                                    actualUrl = item.image_url.url;
+                                }
+                                
+                                // 返回火山要求的 input_image 和扁平化的 image_url 字符串
+                                return { 
+                                    type: "input_image", 
+                                    image_url: actualUrl 
+                                };
+                            }
+                            return item;
+                        });
+                    } else {
+                        newContent = msg.content;
+                    }
+                    
+                    return {
+                        role: msg.role,
+                        content: newContent
+                    };
+                });
+
                 finalRequestBody = {
                     model: requestBody.model,
                     input: formattedInput,
