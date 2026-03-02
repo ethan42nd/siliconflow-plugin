@@ -41,6 +41,28 @@ import ChatCooldown from '../utils/chatCooldown.js'
 var Ws_Server = {};
 init_server();
 
+/**
+ * 用于在 JSON.stringify 时截断超长的 base64 字符串
+ */
+function truncateBase64() {
+    return function(key, value) {
+        if (typeof value === 'string') {
+            // 如果是 data:image/...;base64, 格式
+            if (value.startsWith('data:image/') && value.length > 100) {
+                const header = value.substring(0, value.indexOf(',') + 1);
+                return `${header}[Base64数据过长，已截断，总长度：${value.length}]`;
+            }
+            // 如果是纯 base64 长字符串 (粗略判断)
+            if (key === 'image_url' || key === 'data' || key === 'image') {
+                 if (value.length > 200) {
+                     return `${value.substring(0, 30)}...[Base64数据过长，已截断，总长度：${value.length}]...${value.substring(value.length - 10)}`;
+                 }
+            }
+        }
+        return value;
+    };
+}
+
 export class SF_Painting extends plugin {
     constructor() {
         const config = Config.getConfig()
@@ -1339,7 +1361,7 @@ export class SF_Painting extends plugin {
 
             // 【调试日志 1】输出完整的请求体，确认是否带了 tools
             if (config_date.ss_debugLog) {
-                logger.mark(`\n========== [ss调试模式] 请求体 ==========\nAPI: ${apiUrl}\n${JSON.stringify(finalRequestBody, null, 2)}\n=======================================`);
+                logger.mark(`\n========== [ss调试模式] 请求体 ==========\nAPI: ${apiUrl}\n${JSON.stringify(finalRequestBody, truncateBase64(), 2)}\n=======================================`);
             }
 
             const response = await fetch(apiUrl, {
@@ -1352,7 +1374,7 @@ export class SF_Painting extends plugin {
 
             // 【调试日志 2】输出大模型完整的返回 JSON
             if (config_date.ss_debugLog) {
-                logger.mark(`\n========== [ss调试模式] 原始返回 ==========\n${JSON.stringify(data, null, 2)}\n=========================================`);
+                logger.mark(`\n========== [ss调试模式] 原始返回 ==========\n${JSON.stringify(data, truncateBase64(), 2)}\n=========================================`);
             }
 
             if (isVolcesResponses) {
