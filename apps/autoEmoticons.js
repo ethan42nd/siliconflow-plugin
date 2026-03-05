@@ -228,35 +228,37 @@ const useEmojiSave_Switch = Config.getConfig().autoEmoticons?.useEmojiSave;
 /**
  * 自动表情包插件
  */
-export class autoEmoticons extends plugin {
-    constructor() {
+constructor() {
         const regStr = useEmojiSave_Switch ? "" : `sf-plugin-autoEmoticons-${Math.floor(10000 + Math.random() * 90000)}`;
         super({
             name: '自动表情包与戳一戳',
             dsc: '自动保存群聊中多次出现的图片作为表情包，并随机发送',
-            event: 'message.group',
+            event: 'events', // <--- 【关键修改】把保安换掉，允许接收所有类型的事件
             priority: -5000,
             rule: [
                 {
-                    // 新增：专门监听戳一戳事件，独立覆盖外层的 message.group
-                    event: 'notice.group.poke',
+                    event: 'notice.group.poke', // 认领戳一戳通知
                     fnc: 'handlePoke',
                     log: false
                 },
                 {
+                    event: 'message.group', // 剩下的这些认领群聊消息
                     reg: regStr,
                     fnc: 'autoEmoticonsTrigger',
                     log: false
                 },
                 {
+                    event: 'message.group',
                     reg: '^#?(哒|达)咩$',
                     fnc: 'deleteEmoji',
                 },
                 {
+                    event: 'message.group',
                     reg: '^#群自动表情包配置$',
                     fnc: 'showConfig',
                 },
                 {
+                    event: 'message.group',
                     reg: '^#自动表情包(开启|关闭)$',
                     fnc: 'toggleGroupEmoticons',
                 }
