@@ -228,7 +228,8 @@ const useEmojiSave_Switch = Config.getConfig().autoEmoticons?.useEmojiSave;
 /**
  * 自动表情包插件
  */
-constructor() {
+export class autoEmoticons extends plugin {
+    constructor() {
         const regStr = useEmojiSave_Switch ? "" : `sf-plugin-autoEmoticons-${Math.floor(10000 + Math.random() * 90000)}`;
         super({
             name: '自动表情包与戳一戳',
