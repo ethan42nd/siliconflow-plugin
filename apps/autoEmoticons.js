@@ -582,7 +582,7 @@ export class autoEmoticons extends plugin {
     }
 
     /**
-     * 删除表情包（需要修改以支持共享图片）
+     * 将表情包（包括共享目录上传的图片）移入回收站
      */
     async deleteEmoji(e) {
         const groupId = String(e.group_id)
@@ -601,54 +601,72 @@ export class autoEmoticons extends plugin {
 
         try {
             let filePath;
-            let canDelete = true;
             let fileUnique = null;
+            let isShared = false;
 
+            // 解析图片路径，支持对 shared 手动上传的图片进行回收
             if (fileInfo.startsWith('shared:')) {
-                // 共享图片 - 不允许删除
-                canDelete = false;
-                await e.reply('[autoEmoticons] 这是共享目录图片，不能删除哦~', true);
+                isShared = true;
+                const relPath = fileInfo.substring(7);
+                filePath = path.join(process.cwd(), 'data', 'autoEmoticons', 'PaimonChuoYiChouPictures', relPath);
+                fileUnique = path.basename(filePath, path.extname(filePath));
             } else {
-                // 群专属表情
                 filePath = path.join(process.cwd(), 'data', 'autoEmoticons', 'emoji_save', groupId, fileInfo);
-                // 获取文件唯一标识，去除扩展名
                 fileUnique = path.basename(fileInfo, path.extname(fileInfo));
             }
 
-            if (canDelete && filePath && fs.existsSync(filePath)) {
+            if (filePath && fs.existsSync(filePath)) {
                 const filename = path.basename(filePath);
-                fs.unlinkSync(filePath);
+                
+                // --- 回收站核心逻辑 ---
+                const recycleBinPath = path.join(process.cwd(), 'data', 'autoEmoticons', 'recycle_bin');
+                if (!fs.existsSync(recycleBinPath)) {
+                    fs.mkdirSync(recycleBinPath, { recursive: true });
+                }
+                const targetPath = path.join(recycleBinPath, `${Date.now()}_${filename}`);
+                
+                try {
+                    fs.renameSync(filePath, targetPath); // 移动文件
+                } catch(err) {
+                    // 跨盘符移动时 rename 可能会报错，降级为复制后删除
+                    fs.copyFileSync(filePath, targetPath);
+                    fs.unlinkSync(filePath);
+                }
+                logger.mark(`[autoEmoticons] 图片已移入回收站: ${targetPath}`);
 
-                const emojiList = emojiListCache.get(groupId) || [];
-                const index = emojiList.indexOf(filename);
-                if (index > -1) {
-                    emojiList.splice(index, 1);
-                    emojiListCache.set(groupId, emojiList);
+                // 清理内存缓存
+                if (isShared) {
+                    const index = sharedPicturesCache.indexOf(filePath);
+                    if (index > -1) sharedPicturesCache.splice(index, 1);
+                } else {
+                    const emojiList = emojiListCache.get(groupId) || [];
+                    const index = emojiList.indexOf(filename);
+                    if (index > -1) {
+                        emojiList.splice(index, 1);
+                        emojiListCache.set(groupId, emojiList);
+                    }
                 }
 
-                // 将删除的表情添加到黑名单，30天内不再下载
+                // 将该表情特征加入黑名单，防止机器人再次自动保存此图
                 if (fileUnique) {
                     const blockKey = `Yz:autoEmoticons:blocked:${fileUnique}`
-                    const ONE_MONTH_IN_SECONDS = 30 * 24 * 60 * 60 // 30天的秒数
-                    await redis.set(blockKey, '1', {
-                        EX: ONE_MONTH_IN_SECONDS
-                    })
-                    logger.mark(`[autoEmoticons] 表情被删除，已加入黑名单: ${fileUnique}，15天内不再下载`)
+                    const ONE_MONTH_IN_SECONDS = 30 * 24 * 60 * 60
+                    await redis.set(blockKey, '1', { EX: ONE_MONTH_IN_SECONDS })
                 }
 
                 let res = await e.group.recallMsg(replyMsgId)
                 if (!res) {
                     this.reply("人家不是管理员，不能撤回超过2分钟的消息呢~")
                 }
-
-                await e.reply(`呜呜呜~人家错了，以后不发了~呜`);
+                await e.reply(`呜呜呜~人家错了，图片已经被关进小黑屋(回收站)了~`);
+            } else {
+                await e.reply("文件好像已经被删除了，找不到它呢。");
             }
 
             await redis.del(`Yz:autoEmoticons.sent:pic_filePath:${groupId}:${replyMsgId}`);
         } catch (error) {
-            logger.error(`[autoEmoticons] 删除表情失败: ${error}`);
+            logger.error(`[autoEmoticons] 移入回收站失败: ${error}`);
         }
-
         return true;
     }
 
@@ -999,5 +1017,108 @@ export async function downloadImageFile(url, relativePath, maxSizeMB = null) {
             size: 0,
             error: error.message
         }
+    }
+}
+
+/**
+ * 戳一戳互动扩展模块
+ * 与自动表情包共享图片库和 Redis 记录，完美支持 #哒咩 回收站功能
+ */
+export class autoPoke extends plugin {
+    constructor() {
+        super({
+            name: '戳一戳互动',
+            dsc: '戳一戳机器人触发文字、随机表情包、禁言或反击',
+            event: 'notice.group.poke', // 专门监听戳一戳事件
+            priority: 5000,
+            rule: [
+                {
+                    fnc: 'handlePoke',
+                    log: false
+                }
+            ]
+        })
+    }
+
+    async handlePoke(e) {
+        // 如果被戳的不是机器人自己，或者群号不存在，直接返回
+        if (e.target_id !== e.self_id || !e.group_id) return false;
+
+        const config = Config.getConfig();
+        const pokeConf = config.pokeConfig || {};
+        if (!pokeConf.enable) return false;
+
+        // 初始化共享图片目录监听（读取你手动上传的图片）
+        initSharedPicturesWatcher();
+
+        const probText = pokeConf.reply_text_prob || 0.2;
+        const probImg = pokeConf.reply_img_prob || 0.5;
+        const probMute = pokeConf.mutepick_prob || 0;
+        const randomVal = Math.random();
+        let currentProb = 0;
+
+        // 1. 文字回复逻辑
+        currentProb += probText;
+        if (randomVal < currentProb) {
+            const wordListStr = pokeConf.word_list || '不要再戳了！\n有什么事吗？\n戳坏了你赔吗！';
+            const words = wordListStr.split('\n').map(w => w.trim()).filter(Boolean);
+            if (words.length > 0) {
+                const word = words[Math.floor(Math.random() * words.length)];
+                await e.reply(word);
+            }
+            return true;
+        }
+
+        // 2. 图片回复逻辑 (自动记录供 #哒咩 撤回并放入回收站)
+        currentProb += probImg;
+        if (randomVal < currentProb) {
+            const groupId = String(e.group_id);
+            const availablePictures = getAvailablePictures(groupId);
+            
+            if (availablePictures.length > 0) {
+                const picturePath = availablePictures[Math.floor(Math.random() * availablePictures.length)];
+                try {
+                    const msgRet = await e.reply(segment.image(picturePath));
+                    const msgId = msgRet?.seq || msgRet?.data?.message_id || msgRet?.time;
+
+                    // 存入 Redis，确保群友用 #哒咩 时能定位到这张图
+                    if (msgId) {
+                        const isSharedPicture = sharedPicturesCache.includes(picturePath);
+                        const fileInfo = isSharedPicture
+                            ? `shared:${path.relative(path.join(process.cwd(), 'data', 'autoEmoticons', 'PaimonChuoYiChouPictures'), picturePath)}`
+                            : path.basename(picturePath);
+                        
+                        await redis.set(`Yz:autoEmoticons.sent:pic_filePath:${groupId}:${msgId}`, fileInfo, { EX: 60 * 60 * 24 * 1 });
+                    }
+                } catch (err) {
+                    logger.error(`[戳一戳] 发送图片失败: ${err}`);
+                }
+            } else {
+                await e.reply("想给你发表情包，但是我的表情库空空如也~");
+            }
+            return true;
+        }
+
+        // 3. 禁言逻辑
+        currentProb += probMute;
+        if (randomVal < currentProb) {
+            try {
+                await e.group.muteMember(e.operator_id, pokeConf.mute_duration || 60);
+                await e.reply('不准戳我！！！');
+            } catch (err) {
+                await e.reply('哼，要不是我没有管理员权限，早把你禁言了！');
+            }
+            return true;
+        }
+
+        // 4. 剩余概率：反向戳一戳
+        try {
+            await e.group.pokeMember(e.operator_id);
+            // 可以附带一句简单的反击话语，或者静默反戳
+            await e.reply('戳你！');
+        } catch (err) {
+            logger.debug('[戳一戳] 反戳失败，机器人可能不是管理员或协议端不支持');
+        }
+        return true;
     }
 }

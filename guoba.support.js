@@ -1769,6 +1769,54 @@ export function supportGuoba() {
           },
         },
         {
+          label: '戳一戳互动配置',
+          component: 'Divider'
+        },
+        {
+          field: 'pokeConfig.enable',
+          label: '启用戳一戳',
+          bottomHelpMessage: '开启后机器人被戳时会根据以下概率触发互动。修改后立即生效。',
+          component: 'Switch'
+        },
+        {
+          field: 'pokeConfig.reply_text_prob',
+          label: '文字回复概率',
+          bottomHelpMessage: '范围 0~1。各项概率总和请小于等于1，剩余的概率将触发“反戳回去”。',
+          component: 'InputNumber',
+          componentProps: { min: 0, max: 1, step: 0.01 }
+        },
+        {
+          field: 'pokeConfig.reply_img_prob',
+          label: '图片回复概率',
+          bottomHelpMessage: '触发时将从“自动保存的表情包”以及“手动上传的共享图片目录”中随机抽选发送。',
+          component: 'InputNumber',
+          componentProps: { min: 0, max: 1, step: 0.01 }
+        },
+        {
+          field: 'pokeConfig.mutepick_prob',
+          label: '禁言概率',
+          bottomHelpMessage: '触发禁言的概率。机器人需具备管理员权限。',
+          component: 'InputNumber',
+          componentProps: { min: 0, max: 1, step: 0.01 }
+        },
+        {
+          field: 'pokeConfig.mute_duration',
+          label: '禁言时长 (秒)',
+          bottomHelpMessage: '触发禁言时的惩罚时间',
+          component: 'InputNumber',
+          componentProps: { min: 1, step: 1 }
+        },
+        {
+          field: 'pokeConfig.word_list',
+          label: '文字回复列表',
+          bottomHelpMessage: '触发文字回复时随机抽取一条发送。请每行填写一条回复语。',
+          component: 'InputTextArea',
+          componentProps: {
+            rows: 6,
+            placeholder: '不要再戳了！\n救命啊，有变态>_<！！！\n你戳谁呢！\n再戳禁言你哦！'
+          }
+        },
+        {
           label: '群自动表情包配置',
           component: 'Divider'
         },
