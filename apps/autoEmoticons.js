@@ -1030,7 +1030,7 @@ export class autoPoke extends plugin {
             name: '戳一戳互动',
             dsc: '戳一戳机器人触发文字、随机表情包、禁言或反击',
             event: 'notice.group.poke', // 专门监听戳一戳事件
-            priority: 5000,
+            priority: -5000,
             rule: [
                 {
                     fnc: 'handlePoke',
