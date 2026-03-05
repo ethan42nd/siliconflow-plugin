@@ -232,11 +232,17 @@ export class autoEmoticons extends plugin {
     constructor() {
         const regStr = useEmojiSave_Switch ? "" : `sf-plugin-autoEmoticons-${Math.floor(10000 + Math.random() * 90000)}`;
         super({
-            name: '自动表情包',
+            name: '自动表情包与戳一戳',
             dsc: '自动保存群聊中多次出现的图片作为表情包，并随机发送',
             event: 'message.group',
-            priority: 5000,
+            priority: -5000,
             rule: [
+                {
+                    // 新增：专门监听戳一戳事件，独立覆盖外层的 message.group
+                    event: 'notice.group.poke',
+                    fnc: 'handlePoke',
+                    log: false
+                },
                 {
                     reg: regStr,
                     fnc: 'autoEmoticonsTrigger',
@@ -265,6 +271,93 @@ export class autoEmoticons extends plugin {
                 log: false
             },
         ]
+    }
+
+    /**
+     * 处理戳一戳事件
+     */
+    async handlePoke(e) {
+        // 如果被戳的不是机器人自己，或者群号不存在，直接返回
+        if (e.target_id !== e.self_id || !e.group_id) return false;
+
+        const config = Config.getConfig();
+        const pokeConf = config.pokeConfig || {};
+        // 检查开关是否开启
+        if (!pokeConf.enable) return false;
+
+        logger.info('[戳一戳] 触发互动');
+
+        // 确保目录监视器已启动，加载你手搓的图片
+        initSharedPicturesWatcher();
+        const groupId = String(e.group_id);
+
+        const probText = pokeConf.reply_text_prob || 0.2;
+        const probImg = pokeConf.reply_img_prob || 0.5;
+        const probMute = pokeConf.mutepick_prob || 0;
+        const randomVal = Math.random();
+        let currentProb = 0;
+
+        // 1. 文字回复逻辑
+        currentProb += probText;
+        if (randomVal < currentProb) {
+            const wordListStr = pokeConf.word_list || '不要再戳了！';
+            const words = wordListStr.split('\n').map(w => w.trim()).filter(Boolean);
+            if (words.length > 0) {
+                const word = words[Math.floor(Math.random() * words.length)];
+                await e.reply(word);
+            }
+            return true;
+        }
+
+        // 2. 图片回复逻辑 (自动记录供 #哒咩 撤回并放入回收站)
+        currentProb += probImg;
+        if (randomVal < currentProb) {
+            const availablePictures = getAvailablePictures(groupId);
+            
+            if (availablePictures.length > 0) {
+                const picturePath = availablePictures[Math.floor(Math.random() * availablePictures.length)];
+                try {
+                    const msgRet = await e.reply(segment.image(picturePath));
+                    const msgId = msgRet?.seq || msgRet?.data?.message_id || msgRet?.time;
+
+                    // 存入 Redis，确保群友用 #哒咩 时能定位到这张图并移入回收站
+                    if (msgId) {
+                        const isSharedPicture = sharedPicturesCache.includes(picturePath);
+                        const fileInfo = isSharedPicture
+                            ? `shared:${path.relative(path.join(process.cwd(), 'data', 'autoEmoticons', 'PaimonChuoYiChouPictures'), picturePath)}`
+                            : path.basename(picturePath);
+                        
+                        await redis.set(`Yz:autoEmoticons.sent:pic_filePath:${groupId}:${msgId}`, fileInfo, { EX: 60 * 60 * 24 * 1 });
+                    }
+                } catch (err) {
+                    logger.error(`[戳一戳] 发送图片失败: ${err}`);
+                }
+            } else {
+                await e.reply("想给你发表情包，但是我的表情库空空如也~");
+            }
+            return true;
+        }
+
+        // 3. 禁言逻辑
+        currentProb += probMute;
+        if (randomVal < currentProb) {
+            try {
+                await e.group.muteMember(e.operator_id, pokeConf.mute_duration || 60);
+                await e.reply('不准戳我！！！');
+            } catch (err) {
+                await e.reply('哼，要不是我没有管理员权限，早把你禁言了！');
+            }
+            return true;
+        }
+
+        // 4. 剩余概率：反击
+        try {
+            await e.group.pokeMember(e.operator_id);
+            await e.reply('戳你！');
+        } catch (err) {
+            logger.debug('[戳一戳] 反戳失败，协议端可能不支持');
+        }
+        return true;
     }
 
     async autoEmoticonsTrigger(e) {
@@ -1017,108 +1110,5 @@ export async function downloadImageFile(url, relativePath, maxSizeMB = null) {
             size: 0,
             error: error.message
         }
-    }
-}
-
-/**
- * 戳一戳互动扩展模块
- * 与自动表情包共享图片库和 Redis 记录，完美支持 #哒咩 回收站功能
- */
-export class autoPoke extends plugin {
-    constructor() {
-        super({
-            name: '戳一戳互动',
-            dsc: '戳一戳机器人触发文字、随机表情包、禁言或反击',
-            event: 'notice.group.poke', // 专门监听戳一戳事件
-            priority: -5000,
-            rule: [
-                {
-                    fnc: 'handlePoke',
-                    log: false
-                }
-            ]
-        })
-    }
-
-    async handlePoke(e) {
-        // 如果被戳的不是机器人自己，或者群号不存在，直接返回
-        if (e.target_id !== e.self_id || !e.group_id) return false;
-
-        const config = Config.getConfig();
-        const pokeConf = config.pokeConfig || {};
-        if (!pokeConf.enable) return false;
-
-        // 初始化共享图片目录监听（读取你手动上传的图片）
-        initSharedPicturesWatcher();
-
-        const probText = pokeConf.reply_text_prob || 0.2;
-        const probImg = pokeConf.reply_img_prob || 0.5;
-        const probMute = pokeConf.mutepick_prob || 0;
-        const randomVal = Math.random();
-        let currentProb = 0;
-
-        // 1. 文字回复逻辑
-        currentProb += probText;
-        if (randomVal < currentProb) {
-            const wordListStr = pokeConf.word_list || '不要再戳了！\n有什么事吗？\n戳坏了你赔吗！';
-            const words = wordListStr.split('\n').map(w => w.trim()).filter(Boolean);
-            if (words.length > 0) {
-                const word = words[Math.floor(Math.random() * words.length)];
-                await e.reply(word);
-            }
-            return true;
-        }
-
-        // 2. 图片回复逻辑 (自动记录供 #哒咩 撤回并放入回收站)
-        currentProb += probImg;
-        if (randomVal < currentProb) {
-            const groupId = String(e.group_id);
-            const availablePictures = getAvailablePictures(groupId);
-            
-            if (availablePictures.length > 0) {
-                const picturePath = availablePictures[Math.floor(Math.random() * availablePictures.length)];
-                try {
-                    const msgRet = await e.reply(segment.image(picturePath));
-                    const msgId = msgRet?.seq || msgRet?.data?.message_id || msgRet?.time;
-
-                    // 存入 Redis，确保群友用 #哒咩 时能定位到这张图
-                    if (msgId) {
-                        const isSharedPicture = sharedPicturesCache.includes(picturePath);
-                        const fileInfo = isSharedPicture
-                            ? `shared:${path.relative(path.join(process.cwd(), 'data', 'autoEmoticons', 'PaimonChuoYiChouPictures'), picturePath)}`
-                            : path.basename(picturePath);
-                        
-                        await redis.set(`Yz:autoEmoticons.sent:pic_filePath:${groupId}:${msgId}`, fileInfo, { EX: 60 * 60 * 24 * 1 });
-                    }
-                } catch (err) {
-                    logger.error(`[戳一戳] 发送图片失败: ${err}`);
-                }
-            } else {
-                await e.reply("想给你发表情包，但是我的表情库空空如也~");
-            }
-            return true;
-        }
-
-        // 3. 禁言逻辑
-        currentProb += probMute;
-        if (randomVal < currentProb) {
-            try {
-                await e.group.muteMember(e.operator_id, pokeConf.mute_duration || 60);
-                await e.reply('不准戳我！！！');
-            } catch (err) {
-                await e.reply('哼，要不是我没有管理员权限，早把你禁言了！');
-            }
-            return true;
-        }
-
-        // 4. 剩余概率：反向戳一戳
-        try {
-            await e.group.pokeMember(e.operator_id);
-            // 可以附带一句简单的反击话语，或者静默反戳
-            await e.reply('戳你！');
-        } catch (err) {
-            logger.debug('[戳一戳] 反戳失败，机器人可能不是管理员或协议端不支持');
-        }
-        return true;
     }
 }
