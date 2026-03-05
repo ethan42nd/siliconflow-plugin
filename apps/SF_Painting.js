@@ -6,6 +6,7 @@ import {
     parseSourceImg,
     url2Base64,
     getMediaFrom_awaitContext,
+    getMediaTargetUrl,
 } from '../utils/getImg.js'
 import { handleParam } from '../utils/parse.js'
 import { markdown_screenshot } from '../utils/markdownPic.js'
@@ -862,11 +863,15 @@ export class SF_Painting extends plugin {
             e.reply(`人家开始生成啦，请等待1-10分钟`, true, { recallMsg: 60 });
         }
 
+        // toAiMessage 为空时现在Gemini会报错
+        if (!toAiMessage.trim()) {
+            toAiMessage = " ";
+        }
+
         // 处理引用消息,获取图片和文本
         await parseSourceImg(e)
         if (mustNeedImgLength) {
-            await getMediaFrom_awaitContext(e, this, mustNeedImgLength, memberConfigName)
-            if (e.img.length < mustNeedImgLength)
+            if (!(await getMediaFrom_awaitContext(e, this, mustNeedImgLength, memberConfigName)))
                 return true;
         }
         let currentImages = [];
@@ -1144,7 +1149,7 @@ export class SF_Painting extends plugin {
      * @param {*} opt 可选参数
      * @return {Object} 返回 {content, imageBase64Array}
      */
-    async generatePrompt(input, use_sf_key, config_date, forChat = false, apiBaseUrl = "", model = "", opt = {}, historyMessages = [], e) {
+    async generatePrompt(input = " ", use_sf_key, config_date, forChat = false, apiBaseUrl = "", model = "", opt = {}, historyMessages = [], e) {
         // 获取重试次数配置
         const mustReturnImgRetriesTimes = opt.mustReturnImgRetriesTimes || 0;
         const errorRetryTimes = opt.errorRetryTimes || 3; // 错误重试次数，默认3次
@@ -1774,44 +1779,115 @@ ${e.sfRuntime.isgeneratePrompt === undefined ? "Tags中可用：--自动提示�
             e.reply(`人家开始生成啦，请等待1-10分钟`, true, { recallMsg: 60 });
         }
 
+        // toAiMessage 为空时现在Gemini会报错
+        if (!toAiMessage.trim()) {
+            toAiMessage = " ";
+        }
+
         // 处理引用消息,获取图片和文本
         await parseSourceImg(e)
         if (mustNeedImgLength) {
-            await getMediaFrom_awaitContext(e, this, mustNeedImgLength, memberConfigName)
-            if (e.img.length < mustNeedImgLength)
+            if (!(await getMediaFrom_awaitContext(e, this, mustNeedImgLength, memberConfigName)))
                 return true;
         }
-        let currentImages = [];
-        if (e.img && e.img.length > 0) {
-            // 记录获取到的图片链接
+
+        let currentImages = []; // 兼容旧版，仅保存纯 base64 (用于生成 Markdown 图片等)
+        let currentMedia = [];  // 新版结构，包含 {mimeType, data} (用于发给 Gemini)
+        let isVideoMsg = false;
+
+        // 获取允许的最大下载体积（字节）
+        const maxSizeMB = config_date.mediaMaxSizeInMB || 10;
+        const maxSizeBytes = maxSizeMB * 1024 * 1024;
+
+        // 提取视频链接
+        let { targetUrl, isVideo } = getMediaTargetUrl(e);
+
+        if (isVideo && targetUrl) {
+            isVideoMsg = true;
+            try {
+                logger.info(`[SF插件][gg]获取到视频链接:\n${targetUrl}`);
+                // e.reply(`正在下载视频处理中，请稍候...`, true, { recallMsg: 10 });
+
+                const response = await fetch(targetUrl);
+                if (!response.ok) throw new Error(`HTTP状态码异常: ${response.status}`);
+
+                // 校验响应头声明的大小
+                const contentLength = response.headers.get('content-length');
+                if (contentLength && parseInt(contentLength) > maxSizeBytes) {
+                    throw new Error(`视频大小超过限制 (${maxSizeMB}MB)`);
+                }
+
+                const buffer = await response.arrayBuffer();
+                // 校验实际下载下来的大小
+                if (buffer.byteLength > maxSizeBytes) {
+                    throw new Error(`视频实际大小超过限制 (${maxSizeMB}MB)`);
+                }
+
+                const base64Data = Buffer.from(buffer).toString('base64');
+                let mimeType = response.headers.get('content-type');
+                if (!mimeType || mimeType === 'application/octet-stream') {
+                    mimeType = 'video/mp4';
+                }
+
+                currentMedia.push({ mimeType: mimeType, data: base64Data });
+            } catch (error) {
+                logger.error(`[SF插件][gg]获取视频时出错: ${error.message}`);
+                // e.reply(`处理视频失败: ${error.message}`, true);
+                return false;
+            }
+        }
+        else if (e.img && e.img.length > 0) {
+            // 处理图片逻辑
             logger.info(`[SF插件][gg]获取到图片链接:\n${e.img.join('\n')}`)
-            // 获取所有图片数据
             for (const imgUrl of e.img) {
                 try {
                     // 如果已经是base64格式，直接使用
                     if (typeof imgUrl === 'string' && (imgUrl.startsWith('data:image') || imgUrl.match(/^[A-Za-z0-9+/=]+$/))) {
-                        // 如果是完整的data URL，提取base64部分
                         const base64Data = imgUrl.startsWith('data:image') ? imgUrl.split(',')[1] : imgUrl;
-                        currentImages.push(base64Data);
+                        currentImages.push(base64Data); // 兼容旧版
+
+                        let mimeType = 'image/jpeg';
+                        if (imgUrl.startsWith('data:image')) {
+                            const match = imgUrl.match(/^data:(image\/\w+);base64,/);
+                            if (match) mimeType = match[1];
+                        }
+                        currentMedia.push({ mimeType, data: base64Data }); // 写入新版
                         continue;
                     }
 
-                    // 尝试转换为base64
-                    const base64Image = await url2Base64(imgUrl);
-                    if (!base64Image) {
-                        logger.error(`[SF插件][gg]图片获取失败: ${imgUrl}`);
+                    // 尝试通过 Fetch 下载以验证大小和类型
+                    const response = await fetch(imgUrl);
+                    if (!response.ok) throw new Error(`图片下载失败: ${response.status}`);
+
+                    const contentLength = response.headers.get('content-length');
+                    if (contentLength && parseInt(contentLength) > maxSizeBytes) {
+                        logger.warn(`[SF插件][gg]图片大小超过限制 (${maxSizeMB}MB)，跳过: ${imgUrl}`);
                         continue;
                     }
-                    currentImages.push(base64Image);
+
+                    const buffer = await response.arrayBuffer();
+                    if (buffer.byteLength > maxSizeBytes) {
+                        logger.warn(`[SF插件][gg]图片大小超过限制 (${maxSizeMB}MB)，跳过: ${imgUrl}`);
+                        continue;
+                    }
+
+                    const base64Image = Buffer.from(buffer).toString('base64');
+                    let mimeType = response.headers.get('content-type');
+                    if (!mimeType || mimeType === 'application/octet-stream') {
+                        mimeType = 'image/jpeg';
+                    }
+
+                    currentImages.push(base64Image); // 兼容旧版
+                    currentMedia.push({ mimeType, data: base64Image }); // 写入新版
                 } catch (error) {
                     logger.error(`[SF插件][gg]获取图片时出错: ${error.message}`);
                     continue;
                 }
             }
 
-            // 如果所有图片都处理失败
-            if (currentImages.length === 0 && e.img.length > 0) {
-                e.reply('获取图片失败，请重新发送', true);
+            // 如果所有图片都处理失败或被跳过
+            if (currentMedia.length === 0 && e.img.length > 0) {
+                e.reply(`获取图片失败或体积超过限制(${maxSizeMB}MB)，请重新发送`, true);
                 return false;
             }
         }
@@ -1888,7 +1964,8 @@ ${e.sfRuntime.isgeneratePrompt === undefined ? "Tags中可用：--自动提示�
         }
 
         const opt = {
-            currentImages: currentImages.length > 0 ? currentImages : undefined,
+            currentImages: currentImages.length > 0 ? currentImages : undefined,     // 兼容旧版纯 Base64 数组 (为了不破坏 Markdown 的逻辑)
+            currentMedia: currentMedia.length > 0 ? currentMedia : undefined,        // 包含 MimeType 的多媒体数组，用于传入底层的 Gemini
             historyImages: historyImages.length > 0 ? historyImages : undefined,
             systemPrompt,
             model,
@@ -1900,11 +1977,12 @@ ${e.sfRuntime.isgeneratePrompt === undefined ? "Tags中可用：--自动提示�
             paintModel: paintModel
         }
 
-        logger.info(`[sf prompt]${'[图片]'.repeat(e.img?.length || 0)}${toAiMessage}`)
+        logger.info(`[sf prompt]${isVideoMsg ? '[视频]' : '[图片]'.repeat(e.img?.length || 0)}${toAiMessage}`)
         let { answer, sources, imageBase64, textImagePairs, isError } = await this.generateGeminiPrompt(toAiMessage, ggBaseUrl, ggKey, opt, historyMessages, e)
 
         if (e.sf_is_from_first_person_call)
             ChatCooldown.end(e.user_id, e.group_id)
+
         // 如果是错误返回，不保存聊天记录，直接回复错误信息
         if (isError) {
             await e.reply(hidePrivacyInfo(answer), true);
@@ -2086,7 +2164,7 @@ ${e.sfRuntime.isgeneratePrompt === undefined ? "Tags中可用：--自动提示�
      * @param {Array} historyMessages 历史对话记录
      * @return {Object} 包含答案和来源的对象
      */
-    async generateGeminiPrompt(input, ggBaseUrl, ggKey, opt = {}, historyMessages = [], e) {
+    async generateGeminiPrompt(input = " ", ggBaseUrl, ggKey, opt = {}, historyMessages = [], e) {
         // 获取重试次数配置
         const mustReturnImgRetriesTimes = opt.mustReturnImgRetriesTimes || 0;
         const errorRetryTimes = opt.errorRetryTimes || 3; // 错误重试次数，默认3次
@@ -2181,55 +2259,6 @@ ${e.sfRuntime.isgeneratePrompt === undefined ? "Tags中可用：--自动提示�
         const userName = e?.sender?.card || e?.sender?.nickname || "用户";
         const systemPrompt = opt.systemPrompt.replace(/{{user_name}}/g, userName);
 
-        // // 安全设置常量定义
-        // const SAFETY_SETTINGS_STRICT = [
-        //     { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-        //     { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-        //     { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-        //     { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-        //     { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_NONE" }
-        // ];
-
-        // const SAFETY_SETTINGS_LOOSE = [
-        //     { category: "HARM_CATEGORY_HARASSMENT", threshold: "OFF" },
-        //     { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "OFF" },
-        //     { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "OFF" },
-        //     { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "OFF" },
-        //     { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "OFF" }
-        // ];
-
-        // // 定义模型到安全设置的映射
-        // const MODEL_SAFETY_SETTINGS = {
-        //     // 最宽松安全设置的模型
-        //     LOOSE_SAFETY_MODELS: new Set([
-        //         'gemini-1.5-flash-8b-latest', 'gemini-1.5-flash', 'gemini-1.5-flash-8b-001',
-        //         'gemini-1.5-flash-002', 'gemini-2.0-flash-001', 'gemini-2.0-flash',
-        //         'gemini-1.5-pro', 'gemini-1.5-flash-8b', 'gemini-1.5-pro-002',
-        //         'gemini-1.5-flash-latest', 'gemini-1.5-pro-latest', 'gemini-2.0-flash-exp',
-        //         'gemini-2.0-flash-lite-preview-02-05', 'gemini-2.0-pro-exp-02-05',
-        //         'gemini-2.0-pro-exp', 'gemini-2.0-flash-thinking-exp',
-        //         'gemini-2.0-flash-thinking-exp-01-21', 'gemini-exp-1206',
-        //         'gemini-2.0-flash-lite-preview', 'gemini-2.0-flash-thinking-exp-1219',
-        //     ]),
-        //     // 最严格安全设置的模型
-        //     STRICT_SAFETY_MODELS: new Set([
-        //         'gemini-pro-vision', 'gemini-1.5-flash-001-tuning', 'gemini-1.5-flash-8b-exp-0924',
-        //         'gemini-1.5-pro-001', 'gemini-1.0-pro', 'gemini-1.0-pro-vision-latest',
-        //         'gemini-1.0-pro-latest', 'gemini-pro', 'gemini-1.5-flash-8b-exp-0827',
-        //         'gemini-1.0-pro-001', 'gemini-1.5-flash-001'
-        //     ])
-        // };
-
-        // // 获取安全设置
-        // function getSafetySettings(modelName) {
-        //     if (MODEL_SAFETY_SETTINGS.LOOSE_SAFETY_MODELS.has(modelName)) {
-        //         logger.debug(`[sf插件]模型 ${modelName} 使用最宽松安全设置`);
-        //         return SAFETY_SETTINGS_LOOSE;
-        //     } else {
-        //         logger.debug(`[sf插件]模型 ${modelName} 使用最严格安全设置`);
-        //         return SAFETY_SETTINGS_STRICT;
-        //     }
-        // }
         /** 安全设置常量 - 通用模型（文本/多模态） */
         const SAFETY_SETTINGS_General = [
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
@@ -2304,7 +2333,8 @@ ${e.sfRuntime.isgeneratePrompt === undefined ? "Tags中可用：--自动提示�
             useVertexAI: opt.useVertexAI,
             currentInput: historyMessages.length > 0 ? null : input,
             currentImages: opt.currentImages,
-            historyImages: opt.historyImages
+            historyImages: opt.historyImages,
+            currentMedia: opt.currentMedia
         });
 
 
