@@ -2167,7 +2167,6 @@ export function supportGuoba() {
           component: "GSubForm",
           componentProps: {
             multiple: true,
-            // 【终极修复】必须是带 s 的 schemas！
             schemas: [
               {
                 field: "remark",
@@ -2203,8 +2202,9 @@ export function supportGuoba() {
                 field: "modelId",
                 label: "模型名称",
                 component: "Input",
+                bottomHelpMessage: "填入模型在对应平台上的标准ID。⚠️ 注意：作为后台智能任务时，最好使用带有 Instruct 或 Chat 后缀的指令模型！",
                 componentProps: {
-                  placeholder: 'Qwen/Qwen2.5-7B-Instruct',
+                  placeholder: '例如: Qwen/Qwen2.5-7B-Instruct',
                 },
               }
             ]
@@ -2224,7 +2224,7 @@ export function supportGuoba() {
         {
           field: "smartMode.memory.selectedModel",
           label: "记忆提炼模型",
-          bottomHelpMessage: "选择你要用于提炼记忆的 AI 模型",
+          bottomHelpMessage: "💡 提炼记忆是高频后台任务，推荐使用免费/便宜的 7B~32B 级别模型（如 Qwen2.5-7B-Instruct）。注：为节省天价 Token，插件会自动将群友发送的图片/表情转化为 [发送了一张图片] 文本占位符，普通文本模型即可完美处理，无需强上视觉模型！",
           component: "Select",
           componentProps: {
             options: smartModelOptions,
