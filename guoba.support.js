@@ -2228,13 +2228,39 @@ export function supportGuoba() {
           component: "Switch",
         },
         {
+          field: 'smartMode.memory.groupList',
+          label: '生效群聊(白名单)',
+          bottomHelpMessage: '仅在选中的群聊中开启记忆收集与提炼。留空则在所有群生效。',
+          component: 'Select',
+          componentProps: {
+            allowAdd: true,
+            allowDel: true,
+            mode: 'multiple',
+            options: groupList_total // 直接调用 Yunzai 获取的群列表
+          }
+        },
+        {
           field: "smartMode.memory.selectedModel",
-          label: "记忆提炼模型",
+          label: "记忆提炼模型（小）",
           bottomHelpMessage: "💡 提炼记忆是高频后台任务，推荐使用免费/便宜的 7B~32B 级别模型（如 Qwen2.5-7B-Instruct）。注：为节省天价 Token，插件会自动将群友发送的图片/表情转化为 [发送了一张图片] 文本占位符，普通文本模型即可完美处理，无需强上视觉模型！",
           component: "Select",
           componentProps: {
             options: smartModelOptions,
           },
+        },
+        {
+          field: "smartMode.memory.syncModel",
+          label: "历史同步模型（大）",
+          bottomHelpMessage: "用于 #同步历史记忆 指令。由于要一次性处理成百上千条记录，必须选择支持超大上下文的高智商模型（如 Gemini-Flash, DeepSeek）。",
+          component: "Select",
+          componentProps: { options: smartModelOptions },
+        },
+        {
+          field: "smartMode.memory.syncDays",
+          label: "历史同步天数",
+          bottomHelpMessage: "设置每次同步拉取过去几天的聊天记录（天数越多，消耗的 Token 越大）",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 30, step: 1 },
         },
         {
           field: "smartMode.memory.prompt",

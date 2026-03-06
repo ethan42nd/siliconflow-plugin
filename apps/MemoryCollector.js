@@ -8,30 +8,14 @@ export class UserMemory extends plugin {
             name: '用户记忆收集器',
             dsc: '收集群聊信息并提炼用户画像',
             event: 'message.group',
-            priority: 50000, 
+            priority: 50000,
             rule: [
-                {
-                    reg: '^#提取记忆$',
-                    fnc: 'extractMemory',
-                },
-                // 【新增】记忆管理三连
-                {
-                    reg: '^#我的(记忆|档案)$',
-                    fnc: 'viewMemory',
-                },
-                {
-                    reg: '^#(修改|设定)记忆\\s*(.*)$',
-                    fnc: 'setMemory',
-                },
-                {
-                    reg: '^#(清空|删除)记忆$',
-                    fnc: 'clearMemory',
-                },
-                {
-                    reg: '', 
-                    fnc: 'collectMessage',
-                    log: false
-                }
+                { reg: '^#提取记忆$', fnc: 'extractMemory' },
+                { reg: '^#同步历史记忆$', fnc: 'syncHistoryMemory' },
+                { reg: '^#我的(记忆|档案)$', fnc: 'viewMemory' },
+                { reg: '^#(修改|设定)记忆\\s*(.*)$', fnc: 'setMemory' },
+                { reg: '^#(清空|删除)记忆$', fnc: 'clearMemory' },
+                { reg: '', fnc: 'collectMessage', log: false }
             ]
         })
     }
@@ -44,6 +28,10 @@ export class UserMemory extends plugin {
         const userId = String(e.user_id);
         const groupId = String(e.group_id);
 
+        // 【新增】白名单拦截逻辑
+        const groupList = memConf.groupList || [];
+        if (groupList.length > 0 && !groupList.includes(groupId)) return false;
+
         if (e.target_id === e.self_id) return false;
         if (e.isCmd || (e.msg && e.msg.startsWith('#'))) return false;
 
@@ -53,13 +41,9 @@ export class UserMemory extends plugin {
         let contentToSave = "";
         if (e.message && Array.isArray(e.message)) {
             for (let msg of e.message) {
-                if (msg.type === 'text') {
-                    contentToSave += msg.text;
-                } else if (msg.type === 'image') {
-                    contentToSave += "[发送了一张图片/表情包] ";
-                } else if (msg.type === 'face') {
-                    contentToSave += `[QQ表情:${msg.text || msg.id}] `;
-                }
+                if (msg.type === 'text') contentToSave += msg.text;
+                else if (msg.type === 'image') contentToSave += "[发送了一张图片/表情包] ";
+                else if (msg.type === 'face') contentToSave += `[QQ表情:${msg.text || msg.id}] `;
             }
         } else if (e.msg) {
             contentToSave = e.msg;
@@ -74,144 +58,195 @@ export class UserMemory extends plugin {
             await redis.rPush(bufferKey, contentToSave);
             await redis.lTrim(bufferKey, -30, -1);
             await redis.expire(bufferKey, 60 * 60 * 24 * 7);
-            
-            // 【新增】日志输出判断
+
             if (memConf.logEnable) {
-                logger.mark(`[记忆收集] ${e.sender?.nickname || userId}: ${contentToSave}`);
+                logger.mark(`[记忆收集] ${groupId} - ${e.sender?.nickname || userId}: ${contentToSave}`);
             }
         } catch (error) {
             logger.error(`[记忆收集器] 缓存消息失败: ${error}`);
         }
 
-        return false; 
+        return false;
     }
 
-    // --- 【新增】查看自己的记忆 ---
-    async viewMemory(e) {
-        const groupId = String(e.group_id);
-        const userId = String(e.user_id);
-        const memoryKey = `sf_plugin:user_memory:${groupId}:${userId}`;
-        
-        const memory = await redis.get(memoryKey);
-        
-        if (!memory) {
-            await e.reply("你目前还没有专属记忆档案哦~ 多在群里水群让我多了解你，或者发送 #提取记忆 来生成一份吧！\n(你也可以发送 #修改记忆 [内容] 直接手动为自己设定人设)");
-            return true;
-        }
-
-        await e.reply(`🗂️ 【你的专属心理档案】\n━━━━━━━━━━━━━━\n${memory}\n━━━━━━━━━━━━━━\n💡 提示：如果不准，你可以：\n1. 继续聊天，然后发送 #提取记忆 (让AI重新总结)\n2. 发送 #修改记忆 [你想要的设定] (强行覆盖档案)\n3. 发送 #清空记忆 (销毁案底)`);
-        return true;
-    }
-
-    // --- 【新增】手动修改/篡改记忆 ---
-    async setMemory(e) {
-        const content = e.msg.replace(/^#(修改|设定)记忆\s*/, '').trim();
-        if (!content) {
-            await e.reply("请提供要设定的记忆内容！例如：\n#修改记忆 我是一个高冷男神，不喜欢说话。");
-            return true;
-        }
-
-        const groupId = String(e.group_id);
-        const userId = String(e.user_id);
-        const memoryKey = `sf_plugin:user_memory:${groupId}:${userId}`;
-
-        await redis.set(memoryKey, content);
-        await e.reply(`✅ 篡改成功！以后我就会把你当做这样的人：\n\n${content}`);
-        return true;
-    }
-
-    // --- 【新增】清空销毁记忆 ---
-    async clearMemory(e) {
-        const groupId = String(e.group_id);
-        const userId = String(e.user_id);
-        const memoryKey = `sf_plugin:user_memory:${groupId}:${userId}`;
-        const bufferKey = `sf_plugin:chat_buffer:${groupId}:${userId}`;
-
-        await redis.del(memoryKey);
-        await redis.del(bufferKey); // 顺便把没来得及提取的聊天缓存也清掉
-        
-        await e.reply("💥 轰！你的专属记忆档案和聊天缓存已被彻底销毁！我们重新认识一下吧~");
-        return true;
-    }
-
-    // ... 下面是原有的 extractMemory 方法保持不变 ...
-    async extractMemory(e) {
+    // --- 【升级版】双轨制大模型历史同步 ---
+    async syncHistoryMemory(e) {
         const config = Config.getConfig();
         const memConf = config.smartMode?.memory || {};
-        if (!memConf.enable) {
-            await e.reply("记忆提炼功能未开启，请在锅巴【智能模式】中启用。");
+        const syncModelRemark = memConf.syncModel;
+
+        if (!syncModelRemark) {
+            await e.reply("请先在锅巴配置的【智能模式】中，指定用于处理海量数据的【历史同步模型(大)】！");
+            return true;
+        }
+
+        const apiConfig = config.smart_APIList?.find(api => api.remark === syncModelRemark);
+        if (!apiConfig) {
+            await e.reply(`未在接口池中找到名为 [${syncModelRemark}] 的配置，请检查。`);
             return true;
         }
 
         const groupId = String(e.group_id);
+        const groupName = e.group?.name || '本群';
         const targetUserId = e.source ? String(e.source.user_id) : String(e.user_id);
         const targetName = e.source ? '该用户' : '你';
+        const syncDays = memConf.syncDays || 3;
 
-        const bufferKey = `sf_plugin:chat_buffer:${groupId}:${targetUserId}`;
-        const memoryKey = `sf_plugin:user_memory:${groupId}:${targetUserId}`;
-
-        const messages = await redis.lRange(bufferKey, 0, -1);
-        
-        if (!messages || messages.length < 5) {
-            await e.reply(`${targetName}最近在群里的发言太少啦（仅 ${messages.length} 条），我还摸不透性格，再多聊几句吧~`);
-            return true;
-        }
-
-        await e.reply(`正在查阅${targetName}最近的 ${messages.length} 条发言，脑补画面中...`);
-
-        const oldMemory = await redis.get(memoryKey) || "暂无历史印象。";
-        const systemPrompt = memConf.prompt;
-        const userPrompt = `【该用户历史印象】：${oldMemory}\n【该用户近期发言记录】：\n${messages.join('\n')}\n\n请输出更新后的用户画像：`;
-
-        const baseUrl = memConf.apiBaseUrl || "https://api.siliconflow.cn/v1";
-        const modelName = memConf.model || "Qwen/Qwen2.5-7B-Instruct";
-        
-        let apiKey = memConf.apiKey;
-        if (!apiKey) {
-            const sfKeys = config.sf_keys;
-            if (!sfKeys || sfKeys.length === 0) {
-                await e.reply("未配置 API Key，请在配置文件中填写！");
-                return true;
-            }
-            apiKey = sfKeys[Math.floor(Math.random() * sfKeys.length)].sf_key;
-        }
+        await e.reply(`正在呼叫超大杯模型 [${apiConfig.modelId}]，从 group-insight 数据库中拉取${targetName}过去 ${syncDays} 天的言论进行深度测写，请耐心等待...`);
 
         try {
-            const response = await fetch(`${baseUrl}/chat/completions`, {
+            const insightPath = '../../group-insight/components/index.js';
+            const insightComponents = await import(insightPath);
+            const messageCollector = await insightComponents.getMessageCollector();
+
+            const messages = await messageCollector.getRecentUserMessages(
+                e.group_id, targetUserId, 1000, null, syncDays
+            );
+
+            if (!messages || messages.length === 0) {
+                await e.reply(`没有找到${targetName}最近 ${syncDays} 天的发言记录。`);
+                return true;
+            }
+
+            let validMessages = [];
+            for (let i = messages.length - 1; i >= 0; i--) {
+                let msgObj = messages[i];
+                let content = "";
+                if (msgObj.message && Array.isArray(msgObj.message)) {
+                    for (let m of msgObj.message) {
+                        if (m.type === 'text') content += m.text;
+                        else if (m.type === 'image') content += "[发送图片] ";
+                    }
+                } else if (typeof msgObj.message === 'string') {
+                    content = msgObj.message;
+                } else if (msgObj.raw_message) {
+                    content = msgObj.raw_message;
+                }
+                content = content.trim();
+                if (content && !content.startsWith('#')) {
+                    validMessages.push(content);
+                }
+            }
+
+            if (validMessages.length === 0) {
+                await e.reply("拉取到的记录均为空白或指令，无法生成。");
+                return true;
+            }
+
+            // 【加入群组上下文提示】
+            const systemPrompt = memConf.prompt;
+            const userPrompt = `【上下文信息】：你正在分析的用户是在名为"${groupName}"的群聊中的成员。\n【该用户过去 ${syncDays} 天的 ${validMessages.length} 条发言记录】：\n${validMessages.join('\n')}\n\n请输出最终的用户画像：`;
+
+            const apiKey = apiConfig.apiKey || (config.sf_keys && config.sf_keys.length > 0 ? config.sf_keys[0].sf_key : "");
+            const response = await fetch(`${apiConfig.baseUrl}/chat/completions`, {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${apiKey}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    model: modelName,
+                    model: apiConfig.modelId,
                     messages: [
                         { role: "system", content: systemPrompt },
                         { role: "user", content: userPrompt }
                     ],
-                    max_tokens: 100,
-                    temperature: 0.3 
+                    max_tokens: 150,
+                    temperature: 0.3
                 })
             });
 
             const resJson = await response.json();
             if (resJson.choices && resJson.choices.length > 0) {
                 const newMemory = resJson.choices[0].message.content.trim();
-                
-                await redis.set(memoryKey, newMemory);
-                await redis.del(bufferKey); 
 
-                await e.reply(`提炼完成！[${modelName}] 认为${targetName}当前的个人画像为：\n\n${newMemory}`);
+                // 直接存入最终记忆，并清空日常收集缓存重新开始
+                const memoryKey = `sf_plugin:user_memory:${groupId}:${targetUserId}`;
+                const bufferKey = `sf_plugin:chat_buffer:${groupId}:${targetUserId}`;
+                await redis.set(memoryKey, newMemory);
+                await redis.del(bufferKey);
+
+                await e.reply(`🎯 深度测写完成！基于 ${validMessages.length} 条记录，[${apiConfig.modelId}] 认为${targetName}在"${groupName}"群的画像为：\n\n${newMemory}`);
             } else {
-                await e.reply(`模型返回异常：${resJson.error?.message || '未知错误'}`);
-                logger.error("[记忆提取]", resJson);
+                await e.reply(`大模型返回异常：${resJson.error?.message || '未知错误'}`);
             }
 
         } catch (error) {
-            await e.reply(`提炼过程出错啦：${error.message}`);
-            logger.error(`[记忆提取] ${error}`);
+            logger.error(`[同步历史记忆] 失败: ${error}`);
+            await e.reply(`处理异常：${error.message}`);
         }
-
         return true;
+    }
+
+    // 辅助功能：我的记忆、修改记忆、清空记忆
+    async viewMemory(e) {
+        const memory = await redis.get(`sf_plugin:user_memory:${e.group_id}:${e.user_id}`);
+        if (!memory) return e.reply("档案为空，请发送 #提取记忆 或 #同步历史记忆 生成。");
+        return e.reply(`🗂️ 【你的专属心理档案】\n━━━━━━━━━━━━━━\n${memory}`);
+    }
+
+    async setMemory(e) {
+        const content = e.msg.replace(/^#(修改|设定)记忆\s*/, '').trim();
+        if (!content) return e.reply("请提供要设定的记忆内容！");
+        await redis.set(`sf_plugin:user_memory:${e.group_id}:${e.user_id}`, content);
+        return e.reply(`✅ 篡改成功！以后我会把你当做：\n\n${content}`);
+    }
+
+    async clearMemory(e) {
+        await redis.del(`sf_plugin:user_memory:${e.group_id}:${e.user_id}`);
+        await redis.del(`sf_plugin:chat_buffer:${e.group_id}:${e.user_id}`);
+        return e.reply("💥 你的专属记忆档案和聊天缓存已被彻底销毁！");
+    }
+
+    // 日常小批量提炼（保持原样，直接读取选中的小模型）
+    async extractMemory(e) {
+        const config = Config.getConfig();
+        const memConf = config.smartMode?.memory || {};
+        if (!memConf.enable) return e.reply("记忆提炼功能未开启。");
+
+        const apiConfig = config.smart_APIList?.find(api => api.remark === memConf.selectedModel);
+        if (!apiConfig) return e.reply(`未找到名为 [${memConf.selectedModel}] 的接口。`);
+
+        const groupId = String(e.group_id);
+        const groupName = e.group?.name || '本群';
+        const targetUserId = e.source ? String(e.source.user_id) : String(e.user_id);
+        const targetName = e.source ? '该用户' : '你';
+
+        const bufferKey = `sf_plugin:chat_buffer:${groupId}:${targetUserId}`;
+        const memoryKey = `sf_plugin:user_memory:${groupId}:${targetUserId}`;
+        const messages = await redis.lRange(bufferKey, 0, -1);
+
+        if (!messages || messages.length < 5) return e.reply(`${targetName}近期发言过少。`);
+
+        await e.reply(`调用 [${apiConfig.modelId}] 查阅${targetName}最近 ${messages.length} 条发言...`);
+
+        const oldMemory = await redis.get(memoryKey) || "暂无历史印象。";
+        // 【加入群组上下文】
+        const userPrompt = `【群组名称】："${groupName}"\n【历史印象】：${oldMemory}\n【近期发言】：\n${messages.join('\n')}\n\n请输出更新后的用户画像：`;
+
+        try {
+            const apiKey = apiConfig.apiKey || (config.sf_keys && config.sf_keys.length > 0 ? config.sf_keys[0].sf_key : "");
+            const response = await fetch(`${apiConfig.baseUrl}/chat/completions`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: apiConfig.modelId,
+                    messages: [
+                        { role: "system", content: memConf.prompt },
+                        { role: "user", content: userPrompt }
+                    ],
+                    max_tokens: 100,
+                    temperature: 0.3
+                })
+            });
+
+            const resJson = await response.json();
+            if (resJson.choices && resJson.choices.length > 0) {
+                const newMemory = resJson.choices[0].message.content.trim();
+                await redis.set(memoryKey, newMemory);
+                await redis.del(bufferKey);
+                return e.reply(`提炼完成！\n\n${newMemory}`);
+            } else {
+                return e.reply(`模型异常：${resJson.error?.message || '未知错误'}`);
+            }
+        } catch (error) {
+            return e.reply(`提炼出错：${error.message}`);
+        }
     }
 }
