@@ -2167,8 +2167,8 @@ export function supportGuoba() {
           component: "GSubForm",
           componentProps: {
             multiple: true,
-            // 【关键修复】这里必须是 schema，不能是 items！
-            schema: [
+            // 【终极修复】必须是带 s 的 schemas！
+            schemas: [
               {
                 field: "remark",
                 label: "标识名(必填)",
@@ -2188,17 +2188,24 @@ export function supportGuoba() {
               {
                 field: "baseUrl",
                 label: "接口地址",
-                component: "Input"
+                component: "Input",
+                componentProps: {
+                  placeholder: 'https://api.siliconflow.cn/v1',
+                },
               },
               {
                 field: "apiKey",
                 label: "API密钥",
-                component: "InputPassword"
+                component: "InputPassword",
+                bottomHelpMessage: "如果留空，将自动使用上方配置的 sf_keys",
               },
               {
                 field: "modelId",
                 label: "模型名称",
-                component: "Input"
+                component: "Input",
+                componentProps: {
+                  placeholder: 'Qwen/Qwen2.5-7B-Instruct',
+                },
               }
             ]
           }
