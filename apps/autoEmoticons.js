@@ -582,7 +582,7 @@ export class autoEmoticons extends plugin {
     }
 
     /**
-     * 将表情包（包括共享目录上传的图片）移入回收站
+     * 将表情包或戳一戳的文字移入回收站
      */
     async deleteEmoji(e) {
         const groupId = String(e.group_id)
@@ -593,81 +593,110 @@ export class autoEmoticons extends plugin {
             return false;
         }
 
+        // ==============================
+        // 1. 尝试查找是否为图片消息
+        // ==============================
         const fileInfo = await redis.get(`Yz:autoEmoticons.sent:pic_filePath:${groupId}:${replyMsgId}`);
-        if (!fileInfo) {
-            logger.mark(`[autoEmoticons] 该图片也许不是本插件发送的`)
-            return false;
+        if (fileInfo) {
+            try {
+                let filePath;
+                let fileUnique = null;
+                let isShared = false;
+
+                if (fileInfo.startsWith('shared:')) {
+                    isShared = true;
+                    const relPath = fileInfo.substring(7);
+                    filePath = path.join(process.cwd(), 'data', 'autoEmoticons', 'PaimonChuoYiChouPictures', relPath);
+                    fileUnique = path.basename(filePath, path.extname(filePath));
+                } else {
+                    filePath = path.join(process.cwd(), 'data', 'autoEmoticons', 'emoji_save', groupId, fileInfo);
+                    fileUnique = path.basename(fileInfo, path.extname(fileInfo));
+                }
+
+                if (filePath && fs.existsSync(filePath)) {
+                    const filename = path.basename(filePath);
+                    const recycleBinPath = path.join(process.cwd(), 'data', 'autoEmoticons', 'recycle_bin');
+                    if (!fs.existsSync(recycleBinPath)) {
+                        fs.mkdirSync(recycleBinPath, { recursive: true });
+                    }
+                    const targetPath = path.join(recycleBinPath, `${Date.now()}_${filename}`);
+                    
+                    try {
+                        fs.renameSync(filePath, targetPath);
+                    } catch(err) {
+                        fs.copyFileSync(filePath, targetPath);
+                        fs.unlinkSync(filePath);
+                    }
+                    logger.mark(`[autoEmoticons] 图片已移入回收站: ${targetPath}`);
+
+                    if (isShared) {
+                        const index = sharedPicturesCache.indexOf(filePath);
+                        if (index > -1) sharedPicturesCache.splice(index, 1);
+                    } else {
+                        const emojiList = emojiListCache.get(groupId) || [];
+                        const index = emojiList.indexOf(filename);
+                        if (index > -1) {
+                            emojiList.splice(index, 1);
+                            emojiListCache.set(groupId, emojiList);
+                        }
+                    }
+
+                    if (fileUnique) {
+                        const blockKey = `Yz:autoEmoticons:blocked:${fileUnique}`
+                        await redis.set(blockKey, '1', { EX: 30 * 24 * 60 * 60 })
+                    }
+
+                    let res = await e.group.recallMsg(replyMsgId)
+                    if (!res) this.reply("人家不是管理员，不能撤回超过2分钟的消息呢~")
+                    await e.reply(`呜呜呜~人家错了，图片已经被关进小黑屋了~`);
+                } else {
+                    await e.reply("文件好像已经被删除了，找不到它呢。");
+                }
+                await redis.del(`Yz:autoEmoticons.sent:pic_filePath:${groupId}:${replyMsgId}`);
+            } catch (error) {
+                logger.error(`[autoEmoticons] 图片移入回收站失败: ${error}`);
+            }
+            return true;
         }
 
-        try {
-            let filePath;
-            let fileUnique = null;
-            let isShared = false;
+        // ==============================
+        // 2. 尝试查找是否为文字消息
+        // ==============================
+        const textContent = await redis.get(`Yz:autoEmoticons.sent:text_content:${groupId}:${replyMsgId}`);
+        if (textContent) {
+            try {
+                // 执行撤回
+                let res = await e.group.recallMsg(replyMsgId);
+                if (!res) this.reply("人家不是管理员，不能撤回超过2分钟的消息呢~");
 
-            // 解析图片路径，支持对 shared 手动上传的图片进行回收
-            if (fileInfo.startsWith('shared:')) {
-                isShared = true;
-                const relPath = fileInfo.substring(7);
-                filePath = path.join(process.cwd(), 'data', 'autoEmoticons', 'PaimonChuoYiChouPictures', relPath);
-                fileUnique = path.basename(filePath, path.extname(filePath));
-            } else {
-                filePath = path.join(process.cwd(), 'data', 'autoEmoticons', 'emoji_save', groupId, fileInfo);
-                fileUnique = path.basename(fileInfo, path.extname(fileInfo));
-            }
-
-            if (filePath && fs.existsSync(filePath)) {
-                const filename = path.basename(filePath);
-                
-                // --- 回收站核心逻辑 ---
-                const recycleBinPath = path.join(process.cwd(), 'data', 'autoEmoticons', 'recycle_bin');
-                if (!fs.existsSync(recycleBinPath)) {
-                    fs.mkdirSync(recycleBinPath, { recursive: true });
-                }
-                const targetPath = path.join(recycleBinPath, `${Date.now()}_${filename}`);
-                
-                try {
-                    fs.renameSync(filePath, targetPath); // 移动文件
-                } catch(err) {
-                    // 跨盘符移动时 rename 可能会报错，降级为复制后删除
-                    fs.copyFileSync(filePath, targetPath);
-                    fs.unlinkSync(filePath);
-                }
-                logger.mark(`[autoEmoticons] 图片已移入回收站: ${targetPath}`);
-
-                // 清理内存缓存
-                if (isShared) {
-                    const index = sharedPicturesCache.indexOf(filePath);
-                    if (index > -1) sharedPicturesCache.splice(index, 1);
-                } else {
-                    const emojiList = emojiListCache.get(groupId) || [];
-                    const index = emojiList.indexOf(filename);
+                // 从 Config.js 中读取并修改配置
+                let config = Config.getConfig();
+                if (config.pokeConfig && config.pokeConfig.word_list) {
+                    let words = config.pokeConfig.word_list.split('\n').map(w => w.trim()).filter(Boolean);
+                    const index = words.indexOf(textContent);
                     if (index > -1) {
-                        emojiList.splice(index, 1);
-                        emojiListCache.set(groupId, emojiList);
+                        words.splice(index, 1);
+                        config.pokeConfig.word_list = words.join('\n');
+                        Config.setConfig(config); // 动态保存配置，实时生效
+                        logger.mark(`[autoEmoticons] 已从戳一戳词库中移除: ${textContent}`);
                     }
                 }
 
-                // 将该表情特征加入黑名单，防止机器人再次自动保存此图
-                if (fileUnique) {
-                    const blockKey = `Yz:autoEmoticons:blocked:${fileUnique}`
-                    const ONE_MONTH_IN_SECONDS = 30 * 24 * 60 * 60
-                    await redis.set(blockKey, '1', { EX: ONE_MONTH_IN_SECONDS })
-                }
+                // 写入文本回收站 (追加到文件末尾)
+                const recycleTextPath = path.join(process.cwd(), 'data', 'autoEmoticons', 'recycle_bin_text.txt');
+                const timeStr = new Date().toLocaleString('zh-CN', { hour12: false });
+                fs.appendFileSync(recycleTextPath, `[${timeStr}] ${textContent}\n`);
 
-                let res = await e.group.recallMsg(replyMsgId)
-                if (!res) {
-                    this.reply("人家不是管理员，不能撤回超过2分钟的消息呢~")
-                }
-                await e.reply(`呜呜呜~人家错了，图片已经被关进小黑屋(回收站)了~`);
-            } else {
-                await e.reply("文件好像已经被删除了，找不到它呢。");
+                await e.reply(`这句台词太尬了，我已经把它丢进文本回收站啦！`);
+                await redis.del(`Yz:autoEmoticons.sent:text_content:${groupId}:${replyMsgId}`);
+            } catch (error) {
+                logger.error(`[autoEmoticons] 文字移入回收站失败: ${error}`);
             }
-
-            await redis.del(`Yz:autoEmoticons.sent:pic_filePath:${groupId}:${replyMsgId}`);
-        } catch (error) {
-            logger.error(`[autoEmoticons] 移入回收站失败: ${error}`);
+            return true;
         }
-        return true;
+
+        logger.mark(`[autoEmoticons] 该消息既不是本插件发送的图片，也不是本插件发送的文字`);
+        return false;
     }
 
     /**

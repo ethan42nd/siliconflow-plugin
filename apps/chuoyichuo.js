@@ -43,7 +43,17 @@ export class chuoyichuo extends plugin {
             const words = wordListStr.split('\n').map(w => w.trim()).filter(Boolean);
             if (words.length > 0) {
                 const word = words[Math.floor(Math.random() * words.length)];
-                await e.reply(word);
+                
+                try {
+                    const msgRet = await e.reply(word);
+                    // 【新增】将发送的文字内容存入 Redis，有效期1天，供 #哒咩 撤回使用
+                    const msgId = msgRet?.seq || msgRet?.data?.message_id || msgRet?.time;
+                    if (msgId) {
+                        await redis.set(`Yz:autoEmoticons.sent:text_content:${groupId}:${msgId}`, word, { EX: 60 * 60 * 24 * 1 });
+                    }
+                } catch (err) {
+                    logger.error(`[戳一戳] 发送文字失败: ${err}`);
+                }
             }
             return true;
         }
