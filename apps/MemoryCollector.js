@@ -70,7 +70,6 @@ export class UserMemory extends plugin {
         return false; 
     }
 
-    // --- 【终极版】同步历史记忆引擎 ---
     async syncHistoryMemory(e) {
         const config = Config.getConfig();
         const memConf = config.smartMode?.memory || {};
@@ -152,12 +151,21 @@ export class UserMemory extends plugin {
             }
 
             // 【完全取消不足报错】即便只有 1 条记录，也照样拿去分析
+            // 【完全取消不足报错】即便只有 1 条记录，也照样拿去分析
             if (validMessages.length === 0) {
                 return e.reply(`拉取到了记录，但全是指令人机交互或纯空白信息，没有营养，无法提炼。`);
             }
 
-            const systemPrompt = memConf.prompt;
-            const userPrompt = `【上下文】：你正在分析的用户"${targetName}"是"${groupName}"群聊的成员。\n【过去 ${syncDays} 天内的 ${validMessages.length} 条有效言论】：\n${validMessages.join('\n')}\n\n请根据以上碎片信息，输出该用户的最终侧写画像：`;
+            // --- 【新增】先去 Redis 把该用户以前的旧档案捞出来，给大模型做参考 ---
+            const memoryKey = `sf_plugin:user_memory:${targetGroupId}:${targetUserId}`;
+            const oldMemory = await redis.get(memoryKey) || "该用户暂无历史印象档案。";
+
+            // --- 【修改】调用大模型专属的 syncPrompt ---
+            // 如果没配置 syncPrompt，就降级使用普通的 prompt
+            const systemPrompt = memConf.syncPrompt || memConf.prompt; 
+
+            // --- 【修改】将旧记忆一并喂给大模型 ---
+            const userPrompt = `【上下文】：你正在分析的用户"${targetName}"是"${groupName}"群聊的成员。\n\n【该用户历史印象档案】：\n${oldMemory}\n\n【过去 ${syncDays} 天内的 ${validMessages.length} 条有效言论】：\n${validMessages.join('\n')}\n\n请严格遵循 System 设定，结合历史印象和近期言论，输出该用户的最终侧写画像：`;
 
             const apiKey = apiConfig.apiKey || (config.sf_keys && config.sf_keys.length > 0 ? config.sf_keys[0].sf_key : "");
             const response = await fetch(`${apiConfig.baseUrl}/chat/completions`, {

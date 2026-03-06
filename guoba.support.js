@@ -2264,11 +2264,16 @@ export function supportGuoba() {
         },
         {
           field: "smartMode.memory.prompt",
-          label: "记忆提炼提示词",
-          bottomHelpMessage: "系统指导提示词，用于规范模型提取用户画像的格式与侧重点。",
+          label: "日常提炼提示词(小)",
+          bottomHelpMessage: "指导小模型进行轻量级提炼的提示词，要求严格且字数较少（如50字内）。",
           component: "InputTextArea",
         },
-        // --- 【新增】黑名单配置 ---
+        {
+          field: "smartMode.memory.syncPrompt",
+          label: "历史同步提示词(大)",
+          bottomHelpMessage: "指导大模型处理海量聊天记录的提示词，推荐使用结构化Markdown输出，生成深度长期记忆档案。",
+          component: "InputTextArea",
+        },
         {
           field: 'smartMode.memory.blackList',
           label: '用户黑名单',
@@ -2280,7 +2285,6 @@ export function supportGuoba() {
             allowDel: true,
           }
         },
-        // ------------------------
         {
           component: "Divider",
           label: "工具配置",
