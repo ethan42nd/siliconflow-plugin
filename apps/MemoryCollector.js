@@ -14,6 +14,19 @@ export class UserMemory extends plugin {
                     reg: '^#提取记忆$',
                     fnc: 'extractMemory',
                 },
+                // 【新增】记忆管理三连
+                {
+                    reg: '^#我的(记忆|档案)$',
+                    fnc: 'viewMemory',
+                },
+                {
+                    reg: '^#(修改|设定)记忆\\s*(.*)$',
+                    fnc: 'setMemory',
+                },
+                {
+                    reg: '^#(清空|删除)记忆$',
+                    fnc: 'clearMemory',
+                },
                 {
                     reg: '', 
                     fnc: 'collectMessage',
@@ -24,7 +37,6 @@ export class UserMemory extends plugin {
     }
 
     async collectMessage(e) {
-        // 先检查锅巴配置里有没有开启这个功能
         const config = Config.getConfig();
         const memConf = config.smartMode?.memory || {};
         if (!memConf.enable) return false;
@@ -32,26 +44,18 @@ export class UserMemory extends plugin {
         const userId = String(e.user_id);
         const groupId = String(e.group_id);
 
-        // 1. 过滤自己
         if (e.target_id === e.self_id) return false;
-        
-        // 2. 过滤指令消息（以 # 等开头的命令）
         if (e.isCmd || (e.msg && e.msg.startsWith('#'))) return false;
 
-        // 3. 黑名单过滤（不收集其他机器人或特定群友）
         const blackList = memConf.blackList || [];
         if (blackList.includes(userId)) return false;
 
-        // 4. 解析消息体，将图片、表情转化为纯文本行为记录
         let contentToSave = "";
-        
-        // Yunzai 的 e.message 是一个数组，包含了一句话中的所有元素（文字、图片、表情）
         if (e.message && Array.isArray(e.message)) {
             for (let msg of e.message) {
                 if (msg.type === 'text') {
                     contentToSave += msg.text;
                 } else if (msg.type === 'image') {
-                    // 如果发送了图片，记录一个行为占位符，而不是去耗费资源看图
                     contentToSave += "[发送了一张图片/表情包] ";
                 } else if (msg.type === 'face') {
                     contentToSave += `[QQ表情:${msg.text || msg.id}] `;
@@ -62,7 +66,6 @@ export class UserMemory extends plugin {
         }
 
         contentToSave = contentToSave.trim();
-        // 如果解析完是空的，直接丢弃
         if (!contentToSave) return false;
 
         const bufferKey = `sf_plugin:chat_buffer:${groupId}:${userId}`;
@@ -71,6 +74,11 @@ export class UserMemory extends plugin {
             await redis.rPush(bufferKey, contentToSave);
             await redis.lTrim(bufferKey, -30, -1);
             await redis.expire(bufferKey, 60 * 60 * 24 * 7);
+            
+            // 【新增】日志输出判断
+            if (memConf.logEnable) {
+                logger.mark(`[记忆收集] ${e.sender?.nickname || userId}: ${contentToSave}`);
+            }
         } catch (error) {
             logger.error(`[记忆收集器] 缓存消息失败: ${error}`);
         }
@@ -78,8 +86,56 @@ export class UserMemory extends plugin {
         return false; 
     }
 
+    // --- 【新增】查看自己的记忆 ---
+    async viewMemory(e) {
+        const groupId = String(e.group_id);
+        const userId = String(e.user_id);
+        const memoryKey = `sf_plugin:user_memory:${groupId}:${userId}`;
+        
+        const memory = await redis.get(memoryKey);
+        
+        if (!memory) {
+            await e.reply("你目前还没有专属记忆档案哦~ 多在群里水群让我多了解你，或者发送 #提取记忆 来生成一份吧！\n(你也可以发送 #修改记忆 [内容] 直接手动为自己设定人设)");
+            return true;
+        }
+
+        await e.reply(`🗂️ 【你的专属心理档案】\n━━━━━━━━━━━━━━\n${memory}\n━━━━━━━━━━━━━━\n💡 提示：如果不准，你可以：\n1. 继续聊天，然后发送 #提取记忆 (让AI重新总结)\n2. 发送 #修改记忆 [你想要的设定] (强行覆盖档案)\n3. 发送 #清空记忆 (销毁案底)`);
+        return true;
+    }
+
+    // --- 【新增】手动修改/篡改记忆 ---
+    async setMemory(e) {
+        const content = e.msg.replace(/^#(修改|设定)记忆\s*/, '').trim();
+        if (!content) {
+            await e.reply("请提供要设定的记忆内容！例如：\n#修改记忆 我是一个高冷男神，不喜欢说话。");
+            return true;
+        }
+
+        const groupId = String(e.group_id);
+        const userId = String(e.user_id);
+        const memoryKey = `sf_plugin:user_memory:${groupId}:${userId}`;
+
+        await redis.set(memoryKey, content);
+        await e.reply(`✅ 篡改成功！以后我就会把你当做这样的人：\n\n${content}`);
+        return true;
+    }
+
+    // --- 【新增】清空销毁记忆 ---
+    async clearMemory(e) {
+        const groupId = String(e.group_id);
+        const userId = String(e.user_id);
+        const memoryKey = `sf_plugin:user_memory:${groupId}:${userId}`;
+        const bufferKey = `sf_plugin:chat_buffer:${groupId}:${userId}`;
+
+        await redis.del(memoryKey);
+        await redis.del(bufferKey); // 顺便把没来得及提取的聊天缓存也清掉
+        
+        await e.reply("💥 轰！你的专属记忆档案和聊天缓存已被彻底销毁！我们重新认识一下吧~");
+        return true;
+    }
+
+    // ... 下面是原有的 extractMemory 方法保持不变 ...
     async extractMemory(e) {
-        // 检查开关
         const config = Config.getConfig();
         const memConf = config.smartMode?.memory || {};
         if (!memConf.enable) {
@@ -104,20 +160,17 @@ export class UserMemory extends plugin {
         await e.reply(`正在查阅${targetName}最近的 ${messages.length} 条发言，脑补画面中...`);
 
         const oldMemory = await redis.get(memoryKey) || "暂无历史印象。";
-
-        // 读取锅巴里的动态配置
         const systemPrompt = memConf.prompt;
         const userPrompt = `【该用户历史印象】：${oldMemory}\n【该用户近期发言记录】：\n${messages.join('\n')}\n\n请输出更新后的用户画像：`;
 
         const baseUrl = memConf.apiBaseUrl || "https://api.siliconflow.cn/v1";
         const modelName = memConf.model || "Qwen/Qwen2.5-7B-Instruct";
         
-        // 优先使用专属配置的 Key，否则随机使用全局 sf_keys
         let apiKey = memConf.apiKey;
         if (!apiKey) {
             const sfKeys = config.sf_keys;
             if (!sfKeys || sfKeys.length === 0) {
-                await e.reply("未配置 API Key，请在锅巴配置中填写！");
+                await e.reply("未配置 API Key，请在配置文件中填写！");
                 return true;
             }
             apiKey = sfKeys[Math.floor(Math.random() * sfKeys.length)].sf_key;
@@ -146,7 +199,7 @@ export class UserMemory extends plugin {
                 const newMemory = resJson.choices[0].message.content.trim();
                 
                 await redis.set(memoryKey, newMemory);
-                await redis.del(bufferKey); // 提炼完毕后清空
+                await redis.del(bufferKey); 
 
                 await e.reply(`提炼完成！[${modelName}] 认为${targetName}当前的个人画像为：\n\n${newMemory}`);
             } else {

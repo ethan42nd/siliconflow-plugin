@@ -2222,6 +2222,12 @@ export function supportGuoba() {
           component: "Switch",
         },
         {
+          field: "smartMode.memory.logEnable",
+          label: "收集器日志输出",
+          bottomHelpMessage: "开启后，每次成功拦截并缓存群友发言时，会在控制台打印日志。日常使用建议关闭以防刷屏。",
+          component: "Switch",
+        },
+        {
           field: "smartMode.memory.selectedModel",
           label: "记忆提炼模型",
           bottomHelpMessage: "💡 提炼记忆是高频后台任务，推荐使用免费/便宜的 7B~32B 级别模型（如 Qwen2.5-7B-Instruct）。注：为节省天价 Token，插件会自动将群友发送的图片/表情转化为 [发送了一张图片] 文本占位符，普通文本模型即可完美处理，无需强上视觉模型！",
