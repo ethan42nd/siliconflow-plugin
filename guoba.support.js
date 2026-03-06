@@ -2167,7 +2167,8 @@ export function supportGuoba() {
           component: "GSubForm",
           componentProps: {
             multiple: true,
-            items: [
+            // 【关键修复】这里必须是 schema，不能是 items！
+            schema: [
               {
                 field: "remark",
                 label: "标识名(必填)",
