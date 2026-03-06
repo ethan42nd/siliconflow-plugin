@@ -2236,6 +2236,19 @@ export function supportGuoba() {
           bottomHelpMessage: "系统指导提示词，用于规范模型提取用户画像的格式与侧重点。",
           component: "InputTextArea",
         },
+        // --- 【新增】黑名单配置 ---
+        {
+          field: 'smartMode.memory.blackList',
+          label: '用户黑名单',
+          bottomHelpMessage: '填入不需要收集记忆的QQ号（如其他机器人、不想被收集的用户）。回车添加。',
+          component: 'GTags',
+          componentProps: {
+            placeholder: '输入QQ号并回车',
+            allowAdd: true,
+            allowDel: true,
+          }
+        },
+        // ------------------------
         {
           component: "Divider",
           label: "工具配置",

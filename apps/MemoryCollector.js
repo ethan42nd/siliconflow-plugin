@@ -26,18 +26,49 @@ export class UserMemory extends plugin {
     async collectMessage(e) {
         // 先检查锅巴配置里有没有开启这个功能
         const config = Config.getConfig();
-        if (!config.smartMode?.memory?.enable) return false;
+        const memConf = config.smartMode?.memory || {};
+        if (!memConf.enable) return false;
 
-        if (e.target_id === e.self_id || !e.msg || e.isCmd || e.msg.startsWith('#')) {
-            return false; 
+        const userId = String(e.user_id);
+        const groupId = String(e.group_id);
+
+        // 1. 过滤自己
+        if (e.target_id === e.self_id) return false;
+        
+        // 2. 过滤指令消息（以 # 等开头的命令）
+        if (e.isCmd || (e.msg && e.msg.startsWith('#'))) return false;
+
+        // 3. 黑名单过滤（不收集其他机器人或特定群友）
+        const blackList = memConf.blackList || [];
+        if (blackList.includes(userId)) return false;
+
+        // 4. 解析消息体，将图片、表情转化为纯文本行为记录
+        let contentToSave = "";
+        
+        // Yunzai 的 e.message 是一个数组，包含了一句话中的所有元素（文字、图片、表情）
+        if (e.message && Array.isArray(e.message)) {
+            for (let msg of e.message) {
+                if (msg.type === 'text') {
+                    contentToSave += msg.text;
+                } else if (msg.type === 'image') {
+                    // 如果发送了图片，记录一个行为占位符，而不是去耗费资源看图
+                    contentToSave += "[发送了一张图片/表情包] ";
+                } else if (msg.type === 'face') {
+                    contentToSave += `[QQ表情:${msg.text || msg.id}] `;
+                }
+            }
+        } else if (e.msg) {
+            contentToSave = e.msg;
         }
 
-        const groupId = String(e.group_id);
-        const userId = String(e.user_id);
+        contentToSave = contentToSave.trim();
+        // 如果解析完是空的，直接丢弃
+        if (!contentToSave) return false;
+
         const bufferKey = `sf_plugin:chat_buffer:${groupId}:${userId}`;
 
         try {
-            await redis.rPush(bufferKey, e.msg);
+            await redis.rPush(bufferKey, contentToSave);
             await redis.lTrim(bufferKey, -30, -1);
             await redis.expire(bufferKey, 60 * 60 * 24 * 7);
         } catch (error) {
