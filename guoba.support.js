@@ -2161,9 +2161,54 @@ export function supportGuoba() {
           componentProps: { orientation: "left", plain: true },
         },
         {
-          label: "接口池配置",
-          bottomHelpMessage: "后台模型不需要花哨的预设。请直接在 config.yaml 中的 `smart_APIList` 节点下增删你的 AI 接口，支持 OpenAI/Gemini 格式。配置后即可在下方各功能中选择调度。",
           component: "Divider",
+          label: "智能接口池",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          field: "smart_APIList",
+          label: "接口列表",
+          bottomHelpMessage: "在这里新增或管理你的 AI 接口。⚠️ 修改并【保存】后，请【刷新当前网页】，即可在下方的下拉菜单中选用新接口。",
+          component: "GSubForm",
+          componentProps: {
+            multiple: true,
+            items: [
+              {
+                field: "remark",
+                label: "标识名(必填)",
+                bottomHelpMessage: "作为这个接口的唯一名字，例如：备用-Gemini",
+                component: "Input"
+              },
+              {
+                field: "format",
+                label: "接口格式",
+                component: "Select",
+                componentProps: {
+                  options: [
+                    { label: "OpenAI", value: "OpenAI" },
+                    { label: "Gemini", value: "Gemini" }
+                  ]
+                }
+              },
+              {
+                field: "baseUrl",
+                label: "接口地址",
+                component: "Input"
+              },
+              {
+                field: "apiKey",
+                label: "API密钥",
+                bottomHelpMessage: "填入密钥。如果留空，将自动抽取全局配置的 sf_keys",
+                component: "InputPassword"
+              },
+              {
+                field: "modelId",
+                label: "模型名称",
+                bottomHelpMessage: "例如：Qwen/Qwen2.5-7B-Instruct",
+                component: "Input"
+              }
+            ]
+          }
         },
         {
           component: "Divider",
