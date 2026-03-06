@@ -5,6 +5,14 @@ import { pluginRoot } from "./model/path.js";
 
 const geminiModelsByFetch = Config.getConfig()?.geminiModelsByFetch
 
+// --- 【新增】获取智能模式的模型池，生成锅巴下拉菜单选项 ---
+const smartApiList = Config.getConfig()?.smart_APIList || [];
+const smartModelOptions = smartApiList.map(api => ({ label: api.remark, value: api.remark }));
+if (smartModelOptions.length === 0) {
+  smartModelOptions.push({ label: '请先在配置文件中添加接口', value: '' });
+}
+// ----------------------------------------------------
+
 export function supportGuoba() {
   // /** 群列表（每个Bot-qq单独设置） */
   // let groupList_botUni = Array.from(Bot.gl.values())
@@ -2141,6 +2149,66 @@ export function supportGuoba() {
           component: "InputPassword",
           componentProps: {
             placeholder: "请输入访问密码",
+          },
+        },
+        {
+          label: '智能模式',
+          component: 'SOFT_GROUP_BEGIN'
+        },
+        {
+          component: "Divider",
+          label: "智能接口池说明",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          label: "接口池配置",
+          bottomHelpMessage: "后台模型不需要花哨的预设。请直接在 config.yaml 中的 `smart_APIList` 节点下增删你的 AI 接口，支持 OpenAI/Gemini 格式。配置后即可在下方各功能中选择调度。",
+          component: "Divider",
+        },
+        {
+          component: "Divider",
+          label: "记忆配置",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          field: "smartMode.memory.enable",
+          label: "启用记忆收集",
+          bottomHelpMessage: "开启后会在后台静默收集群友发言，并提取用户画像永久保存。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.memory.selectedModel",
+          label: "记忆提炼模型",
+          bottomHelpMessage: "选择你要用于提炼记忆的 AI 模型",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
+          },
+        },
+        {
+          field: "smartMode.memory.prompt",
+          label: "记忆提炼提示词",
+          bottomHelpMessage: "系统指导提示词，用于规范模型提取用户画像的格式与侧重点。",
+          component: "InputTextArea",
+        },
+        {
+          component: "Divider",
+          label: "工具配置",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          field: "smartMode.tools.enable",
+          label: "启用Tool Calling",
+          bottomHelpMessage: "（开发中）开启后大模型将拥有自主调用插件工具的能力。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.selectedModel",
+          label: "工具调用模型",
+          bottomHelpMessage: "选择用于分析和决定调用何种工具的 AI 模型",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
           },
         },
         {
