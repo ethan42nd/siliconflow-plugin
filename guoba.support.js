@@ -2228,6 +2228,12 @@ export function supportGuoba() {
           component: "Switch",
         },
         {
+          field: "smartMode.memory.debugLog",
+          label: "API调试日志(硬核)",
+          bottomHelpMessage: "开启后会在控制台打印发送给大模型的完整结构体，以及模型返回的原始JSON。专用于排查提炼报错或内容被截断的问题。",
+          component: "Switch",
+        },
+        {
           field: 'smartMode.memory.groupList',
           label: '生效群聊(白名单)',
           bottomHelpMessage: '仅在选中的群聊中开启记忆收集与提炼。留空则在所有群生效。',

@@ -2,6 +2,17 @@ import plugin from '../../../lib/plugins/plugin.js'
 import Config from '../components/Config.js'
 import fetch from 'node-fetch'
 
+// 【新增】日志过滤器：拦截并折叠超长字符串（如 Base64 图片数据）
+const logReplacer = (key, value) => {
+    if (typeof value === 'string' && value.length > 500) {
+        return value.substring(0, 50) + '... [内容过长，已自动折叠]';
+    }
+    return value;
+};
+
+// 辅助睡眠函数
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 export class UserMemory extends plugin {
     constructor() {
         super({
@@ -168,21 +179,37 @@ export class UserMemory extends plugin {
             const userPrompt = `【上下文】：你正在分析的用户"${targetName}"是"${groupName}"群聊的成员。\n\n【该用户历史印象档案】：\n${oldMemory}\n\n【过去 ${syncDays} 天内的 ${validMessages.length} 条有效言论】：\n${validMessages.join('\n')}\n\n请严格遵循 System 设定，结合历史印象和近期言论，输出该用户的最终侧写画像：`;
 
             const apiKey = apiConfig.apiKey || (config.sf_keys && config.sf_keys.length > 0 ? config.sf_keys[0].sf_key : "");
+            
+            // 构建请求体
+            const requestBody = {
+                model: apiConfig.modelId,
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: userPrompt }
+                ],
+                max_tokens: 800, // 【关键修复】解除封印！从150提高到800，足够输出长篇大论
+                temperature: 0.3 
+            };
+
+            // 【新增】如果开启了调试，打印发送的完整内容
+            if (memConf.debugLog) {
+                logger.mark(`========== [历史同步 API 请求] ==========`);
+                logger.info(JSON.stringify(requestBody, logReplacer, 2));
+            }
+
             const response = await fetch(`${apiConfig.baseUrl}/chat/completions`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: apiConfig.modelId,
-                    messages: [
-                        { role: "system", content: systemPrompt },
-                        { role: "user", content: userPrompt }
-                    ],
-                    max_tokens: 150,
-                    temperature: 0.3 
-                })
+                body: JSON.stringify(requestBody)
             });
 
             const resJson = await response.json();
+
+            // 【新增】如果开启了调试，打印收到的完整报文
+            if (memConf.debugLog) {
+                logger.mark(`========== [历史同步 API 响应] ==========`);
+                logger.info(JSON.stringify(resJson, logReplacer, 2));
+            }
             if (resJson.choices && resJson.choices.length > 0) {
                 const newMemory = resJson.choices[0].message.content.trim();
                 
@@ -251,21 +278,34 @@ export class UserMemory extends plugin {
 
         try {
             const apiKey = apiConfig.apiKey || (config.sf_keys && config.sf_keys.length > 0 ? config.sf_keys[0].sf_key : "");
+            
+            const requestBody = {
+                model: apiConfig.modelId,
+                messages: [
+                    { role: "system", content: memConf.prompt },
+                    { role: "user", content: userPrompt }
+                ],
+                max_tokens: 300, // 【修复】小模型日常提炼也稍微放宽一点，避免被夹断
+                temperature: 0.3 
+            };
+
+            if (memConf.debugLog) {
+                logger.mark(`========== [日常提炼 API 请求] ==========`);
+                logger.info(JSON.stringify(requestBody, logReplacer, 2));
+            }
+
             const response = await fetch(`${apiConfig.baseUrl}/chat/completions`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: apiConfig.modelId,
-                    messages: [
-                        { role: "system", content: memConf.prompt },
-                        { role: "user", content: userPrompt }
-                    ],
-                    max_tokens: 100,
-                    temperature: 0.3 
-                })
+                body: JSON.stringify(requestBody)
             });
 
             const resJson = await response.json();
+
+            if (memConf.debugLog) {
+                logger.mark(`========== [日常提炼 API 响应] ==========`);
+                logger.info(JSON.stringify(resJson, logReplacer, 2));
+            }
             if (resJson.choices && resJson.choices.length > 0) {
                 const newMemory = resJson.choices[0].message.content.trim();
                 await redis.set(memoryKey, newMemory);
