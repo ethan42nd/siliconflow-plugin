@@ -242,6 +242,12 @@ export class autoEmoticons extends plugin {
                     fnc: 'autoEmoticonsTrigger',
                     log: false
                 },
+                // 【新增】监听哒咩记录等一系列指令
+                {
+                    event: 'message.group',
+                    reg: '^#?(哒|达)咩(文本|图片)?记录(第\\d+页|\\d+)?$',
+                    fnc: 'showDamieRecord',
+                },
                 {
                     reg: '^#?(哒|达)咩$',
                     fnc: 'deleteEmoji',
@@ -581,6 +587,144 @@ export class autoEmoticons extends plugin {
         return false;
     }
 
+    /**
+     * 显示哒咩记录（支持翻页、指定数量和合并转发）
+     */
+    async showDamieRecord(e) {
+        const msg = e.msg;
+        let type = 'all'; 
+        if (msg.includes('文本')) type = 'text';
+        if (msg.includes('图片')) type = 'image';
+
+        let page = 1;
+        let count = 3;
+
+        // 解析指定页数或数量
+        const pageMatch = msg.match(/第(\d+)页/);
+        if (pageMatch) {
+            page = parseInt(pageMatch[1]) || 1;
+            count = 10; // 翻页模式固定每页 10 条
+        } else {
+            const countMatch = msg.match(/记录(\d+)$/);
+            if (countMatch) {
+                count = parseInt(countMatch[1]) || 3;
+                count = Math.min(count, 10); // 最多不超过 10 条防止过载
+            }
+        }
+
+        const recycleBinPath = path.join(process.cwd(), 'data', 'autoEmoticons', 'recycle_bin');
+        const recycleTextPath = path.join(process.cwd(), 'data', 'autoEmoticons', 'recycle_bin_text.txt');
+
+        let texts = [];
+        let images = [];
+
+        // 1. 读取并解析文本记录
+        if (fs.existsSync(recycleTextPath)) {
+            const content = fs.readFileSync(recycleTextPath, 'utf-8');
+            // 按行分割，过滤空行，反转数组让最新拉黑的展示在最前面
+            texts = content.split('\n').filter(Boolean).reverse(); 
+        }
+
+        // 2. 读取并解析图片记录
+        if (fs.existsSync(recycleBinPath)) {
+            const files = fs.readdirSync(recycleBinPath);
+            images = files.filter(f => ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(path.extname(f).toLowerCase()))
+                          .map(f => {
+                              // 从类似 "1712345678900_图片名.jpg" 的文件名中提取时间戳进行排序
+                              const parts = f.split('_');
+                              const ts = parseInt(parts[0]) || 0;
+                              return { name: f, time: ts, fullPath: path.join(recycleBinPath, f) };
+                          })
+                          .sort((a, b) => b.time - a.time); // 按时间倒序，最新的在前
+        }
+
+        const totalTexts = texts.length;
+        const totalImages = images.length;
+
+        let forwardMsg = []; // 用于装填合并转发内容的消息数组
+        
+        // 统计信息首位展示
+        forwardMsg.push(`📊 哒咩回收站统计\n━━━━━━━━━━━━━━\n📝 文本拦截: ${totalTexts} 条\n🖼️ 图片拦截: ${totalImages} 张`);
+
+        // 根据指令类型组装不同的展现内容
+        if (type === 'all') {
+            forwardMsg.push(`--- 最近 ${count} 条文本记录 ---`);
+            const showTexts = texts.slice(0, count);
+            if (showTexts.length > 0) {
+                showTexts.forEach(t => forwardMsg.push(t));
+            } else {
+                forwardMsg.push("暂无文本记录");
+            }
+
+            forwardMsg.push(`--- 最近 ${count} 张图片记录 ---`);
+            const showImages = images.slice(0, count);
+            if (showImages.length > 0) {
+                showImages.forEach(img => {
+                    forwardMsg.push(segment.image(img.fullPath));
+                });
+            } else {
+                forwardMsg.push("暂无图片记录");
+            }
+
+        } else if (type === 'text') {
+            const maxPage = Math.ceil(totalTexts / 10) || 1;
+            page = Math.min(page, maxPage);
+            const start = (page - 1) * 10;
+            const end = start + 10;
+            const showTexts = texts.slice(start, end);
+
+            forwardMsg.push(`📝 文本哒咩记录 (第 ${page}/${maxPage} 页)`);
+            if (showTexts.length > 0) {
+                showTexts.forEach((t, idx) => forwardMsg.push(`${start + idx + 1}. ${t}`));
+            } else {
+                forwardMsg.push("暂无文本记录");
+            }
+
+        } else if (type === 'image') {
+            const maxPage = Math.ceil(totalImages / 10) || 1;
+            page = Math.min(page, maxPage);
+            const start = (page - 1) * 10;
+            const end = start + 10;
+            const showImages = images.slice(start, end);
+
+            forwardMsg.push(`🖼️ 图片哒咩记录 (第 ${page}/${maxPage} 页)`);
+            if (showImages.length > 0) {
+                showImages.forEach((img, idx) => {
+                    // 将编号文本和图片拼在一个气泡里
+                    forwardMsg.push([`编号 ${start + idx + 1}:\n`, segment.image(img.fullPath)]);
+                });
+            } else {
+                forwardMsg.push("暂无图片记录");
+            }
+        }
+
+        // 3. 制作标准合并转发消息节点
+        let forwardNode = [];
+        for (let msg of forwardMsg) {
+            forwardNode.push({
+                user_id: Bot.uin,
+                nickname: Bot.nickname,
+                message: msg
+            });
+        }
+
+        try {
+            let replyMsg;
+            if (e.isGroup) {
+                replyMsg = await e.group.makeForwardMsg(forwardNode);
+            } else {
+                replyMsg = await e.friend.makeForwardMsg(forwardNode);
+            }
+            // 发送组装好的合并转发消息
+            await e.reply(replyMsg);
+        } catch (err) {
+            logger.error(`[哒咩记录] 生成合并转发失败: ${err}`);
+            await e.reply("合并转发消息生成失败，可能是当前框架或协议端暂不支持。");
+        }
+        
+        return true;
+    }
+    
     /**
      * 将表情包或戳一戳的文字移入回收站
      */
