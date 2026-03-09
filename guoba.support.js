@@ -2669,22 +2669,50 @@ export function supportGuoba() {
         },
         {
           component: "Divider",
-          label: "工具配置",
+          label: "🛠️ 工具配置 (Tool Calling)",
           componentProps: { orientation: "left", plain: true },
         },
         {
           field: "smartMode.tools.enable",
-          label: "启用Tool Calling",
-          bottomHelpMessage: "（开发中）开启后大模型将拥有自主调用插件工具的能力。",
+          label: "启用工具调用",
+          bottomHelpMessage: "开启后AI可以根据用户意图自动调用工具（戳一戳、点赞、禁言等）。",
           component: "Switch",
         },
         {
           field: "smartMode.tools.selectedModel",
           label: "工具调用模型",
-          bottomHelpMessage: "选择用于分析和决定调用何种工具的 AI 模型",
+          bottomHelpMessage: "选择用于判断工具调用的AI模型。推荐使用支持Function Calling的模型（如 GPT-4、Qwen、DeepSeek）。",
           component: "Select",
           componentProps: {
             options: smartModelOptions,
+          },
+        },
+        {
+          field: 'smartMode.tools.groupList',
+          label: '工具生效群聊',
+          bottomHelpMessage: '仅在选中的群聊中启用工具调用。留空则在所有群生效。',
+          component: 'Select',
+          componentProps: {
+            allowAdd: true,
+            allowDel: true,
+            mode: 'multiple',
+            options: groupList_total
+          }
+        },
+        {
+          field: "smartMode.tools.enabledTools",
+          label: "启用的工具",
+          bottomHelpMessage: "选择要启用的工具，空则启用所有工具。",
+          component: "Select",
+          componentProps: {
+            mode: 'multiple',
+            options: [
+              { label: "戳一戳", value: "pokeTool" },
+              { label: "点赞", value: "likeTool" },
+              { label: "撤回消息", value: "recallTool" },
+              { label: "禁言", value: "muteTool" },
+              { label: "查询成员信息", value: "memberInfoTool" }
+            ]
           },
         },
         {

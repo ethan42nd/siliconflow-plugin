@@ -278,5 +278,7 @@ smartMode:
       2. 结合历史档案进行分析，不要遗漏重要信息
       3. 确保JSON格式合法
   tools:
-    enable: false
-    selectedModel: "默认-SF小模型"
+    enable: false               # 是否启用工具调用
+    selectedModel: "默认-SF小模型"  # 工具调用模型
+    groupList: []               # 工具生效群聊白名单
+    enabledTools: []            # 启用的工具列表（空=全部）
