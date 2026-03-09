@@ -55,7 +55,9 @@ async function getMemoryCollector() {
 async function getUserMemoryPrompt(groupId, userId, config) {
     try {
         const memConf = config.smartMode?.memory;
+        // 检查记忆功能和注入功能是否启用
         if (!memConf?.enable) return '';
+        if (memConf.injectToChat === false) return '';
         if (!groupId || groupId === '8888') return '';
         
         const mc = await getMemoryCollector();
