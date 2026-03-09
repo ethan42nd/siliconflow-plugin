@@ -281,4 +281,19 @@ smartMode:
     enable: false               # 是否启用工具调用
     selectedModel: "默认-SF小模型"  # 工具调用模型
     groupList: []               # 工具生效群聊白名单
-    enabledTools: []            # 启用的工具列表（空=全部）
+    enabledTools:              # 启用的工具列表（空=全部启用）
+      - pokeTool               # 戳一戳
+      - likeTool               # 点赞
+      - recallTool             # 撤回消息
+      - muteTool               # 禁言/解禁
+      - memberInfoTool         # 查询成员信息
+      # - searchTool           # 网络搜索（需要额外配置）
+      # - imageSearchTool      # 图片搜索
+      # - musicTool            # 音乐搜索
+      # - weatherTool          # 天气查询
+      # - translateTool        # 翻译
+      # - webParserTool        # 网页解析
+      # - reminderTool         # 定时提醒
+      # - drawTool             # AI绘图（使用SF画图）
+      # - chatHistoryTool      # 聊天历史
+    maxToolRounds: 5            # 单次对话最大工具调用轮数（1-10）

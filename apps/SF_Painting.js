@@ -39,6 +39,17 @@ import {
 } from '../utils/common.js'
 import ChatCooldown from '../utils/chatCooldown.js'
 
+// 导入工具系统（延迟加载避免循环依赖）
+let toolManager = null;
+async function getToolManager() {
+    if (!toolManager) {
+        const { toolManager: tm } = await import('../utils/tools/ToolManager.js');
+        toolManager = tm;
+        toolManager.init();
+    }
+    return toolManager;
+}
+
 // 导入记忆系统（延迟加载避免循环依赖）
 let memoryCollector = null;
 async function getMemoryCollector() {
@@ -1200,10 +1211,19 @@ export class SF_Painting extends plugin {
         const errorRetryTimes = opt.errorRetryTimes || 3; // 错误重试次数，默认3次
         const needRetryForImage = mustReturnImgRetriesTimes > 0;
 
+        // 检查是否启用工具调用
+        const toolsEnabled = config_date.smartMode?.tools?.enable && forChat;
+        const maxToolRounds = config_date.smartMode?.tools?.maxToolRounds || 5;
+
         // 执行主要逻辑
-        const executeRequest = async () => {
-            return await this._generatePromptInternal(input, use_sf_key, config_date, forChat, apiBaseUrl, model, opt, historyMessages, e);
+        const executeRequest = async (toolMode = false, toolMessages = []) => {
+            return await this._generatePromptInternal(input, use_sf_key, config_date, forChat, apiBaseUrl, model, opt, historyMessages, e, toolMode, toolMessages);
         };
+
+        // 如果启用了工具调用，先尝试工具模式
+        if (toolsEnabled) {
+            return await this._generateWithTools(executeRequest, errorRetryTimes, maxToolRounds, e, config_date);
+        }
 
         // 错误重试逻辑
         let lastResult = null;
@@ -1301,6 +1321,108 @@ export class SF_Painting extends plugin {
     }
 
     /**
+     * @description: 带工具调用的生成
+     * @param {*} executeRequest 执行请求的函数
+     * @param {*} errorRetryTimes 错误重试次数
+     * @param {*} maxToolRounds 最大工具调用轮数
+     * @param {*} e 事件对象
+     * @param {*} config_date 配置
+     * @return {Object} 返回 {content, imageBase64Array}
+     */
+    async _generateWithTools(executeRequest, errorRetryTimes, maxToolRounds, e, config_date) {
+        const tm = await getToolManager();
+        const tools = tm.getToolInfos();
+        
+        if (!tools || tools.length === 0) {
+            logger.debug('[sf插件][工具调用] 没有启用的工具，跳过工具模式');
+            return await executeRequest(false, []);
+        }
+
+        logger.info(`[sf插件][工具调用] 开始工具模式，最大轮数: ${maxToolRounds}，可用工具: ${tools.length}个`);
+
+        let toolMessages = [];
+        let round = 0;
+
+        while (round < maxToolRounds) {
+            round++;
+            logger.info(`[sf插件][工具调用] 第 ${round} 轮调用`);
+
+            let lastResult = null;
+            let success = false;
+
+            // 错误重试
+            for (let errorAttempt = 0; errorAttempt <= errorRetryTimes; errorAttempt++) {
+                if (errorAttempt > 0) {
+                    logger.info(`[sf插件][工具调用] 第 ${errorAttempt} 次错误重试`);
+                    await new Promise(resolve => setTimeout(resolve, 1000 * errorAttempt));
+                }
+
+                lastResult = await executeRequest(true, toolMessages);
+
+                if (!lastResult.isError) {
+                    success = true;
+                    break;
+                }
+
+                logger.warn(`[sf插件][工具调用] 检测到错误返回: ${lastResult.content}`);
+            }
+
+            if (!success) {
+                logger.error(`[sf插件][工具调用] 第 ${round} 轮调用失败`);
+                return lastResult;
+            }
+
+            // 检查是否有工具调用
+            if (lastResult.toolCalls && lastResult.toolCalls.length > 0) {
+                logger.info(`[sf插件][工具调用] 检测到 ${lastResult.toolCalls.length} 个工具调用`);
+
+                // 执行工具调用
+                const toolResults = await tm.processToolCalls(lastResult.toolCalls, e);
+                
+                // 添加工具调用和结果到消息历史
+                toolMessages.push({
+                    role: 'assistant',
+                    content: lastResult.content || '',
+                    tool_calls: lastResult.toolCalls
+                });
+
+                for (const result of toolResults) {
+                    toolMessages.push({
+                        role: 'tool',
+                        tool_call_id: result.toolCallId,
+                        name: result.toolName,
+                        content: typeof result.result === 'string' ? result.result : JSON.stringify(result.result)
+                    });
+                }
+
+                // 添加系统提示，让 AI 继续回复
+                toolMessages.push({
+                    role: 'system',
+                    content: '工具调用已完成，请根据工具执行结果用自然语言回复用户。禁止输出任何代码格式如 print()、tool_name() 等，直接用人类语言回复。'
+                });
+            } else {
+                // 没有工具调用，直接返回结果
+                logger.info(`[sf插件][工具调用] 完成，共 ${round} 轮`);
+                return {
+                    content: lastResult.content,
+                    imageBase64Array: lastResult.imageBase64Array,
+                    isError: false,
+                    reasoning_content: lastResult.reasoning_content,
+                    sources: lastResult.sources
+                };
+            }
+        }
+
+        // 达到最大轮数
+        logger.warn(`[sf插件][工具调用] 达到最大轮数 ${maxToolRounds}，强制结束`);
+        return {
+            content: lastResult?.content || '工具调用次数过多，请稍后再试',
+            imageBase64Array: null,
+            isError: false
+        };
+    }
+
+    /**
      * @description: 自动提示词内部实现
      * @param {*} input
      * @param {*} use_sf_key
@@ -1311,7 +1433,7 @@ export class SF_Painting extends plugin {
      * @param {*} opt 可选参数
      * @return {Object} 返回 {content, imageBase64Array}
      */
-    async _generatePromptInternal(input, use_sf_key, config_date, forChat = false, apiBaseUrl = "", model = "", opt = {}, historyMessages = [], e) {
+    async _generatePromptInternal(input, use_sf_key, config_date, forChat = false, apiBaseUrl = "", model = "", opt = {}, historyMessages = [], e, toolMode = false, toolMessages = []) {
         // 获取用户名并替换prompt中的变量
         const userName = e?.sender?.card || e?.sender?.nickname || "用户";
         logger.debug(`[sf插件] 生成提示词 - 用户名: ${userName}`);
@@ -1343,10 +1465,27 @@ export class SF_Painting extends plugin {
 
         requestBody.messages.push(...userMessages);
 
+        // 如果是工具模式，添加工具消息
+        if (toolMode && toolMessages.length > 0) {
+            requestBody.messages.push(...toolMessages);
+        }
+
         try {
             let apiUrl = removeTrailingSlash(apiBaseUrl || config_date.sfBaseUrl);
             let finalRequestBody = requestBody;
             let isVolcesResponses = false;
+
+            // 获取工具信息（如果是工具模式）
+            let tools = null;
+            if (toolMode) {
+                const tm = await getToolManager();
+                tools = tm.getToolInfos();
+                if (tools && tools.length > 0) {
+                    requestBody.tools = tools;
+                    requestBody.tool_choice = 'auto';
+                    logger.debug(`[sf插件][工具调用] 添加 ${tools.length} 个工具到请求`);
+                }
+            }
 
             if (apiUrl.endsWith("/responses")) {
                 isVolcesResponses = true;
@@ -1486,7 +1625,16 @@ export class SF_Painting extends plugin {
                 }
             }
 
-            // ... 下面保留原有的 data?.choices?.[0]?.message?.content 等逻辑不变 ...
+            // 检查是否有工具调用（OpenAI Function Calling 格式）
+            if (toolMode && data?.choices?.[0]?.message?.tool_calls) {
+                const toolCalls = data.choices[0].message.tool_calls;
+                logger.info(`[sf插件][工具调用] 返回 ${toolCalls.length} 个工具调用`);
+                return {
+                    content: data.choices[0].message.content || '',
+                    toolCalls: toolCalls,
+                    isError: false
+                };
+            }
 
             // logger.mark(`[sf插件]API返回 data：\n` + JSON.stringify(data, createTruncatingReplacer(), 2));
 

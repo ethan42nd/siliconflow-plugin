@@ -2702,18 +2702,34 @@ export function supportGuoba() {
         {
           field: "smartMode.tools.enabledTools",
           label: "启用的工具",
-          bottomHelpMessage: "选择要启用的工具，空则启用所有工具。",
+          bottomHelpMessage: "选择要启用的工具，推荐根据群聊实际需求选择。工具越多，AI判断开销越大。",
           component: "Select",
           componentProps: {
             mode: 'multiple',
             options: [
-              { label: "戳一戳", value: "pokeTool" },
-              { label: "点赞", value: "likeTool" },
-              { label: "撤回消息", value: "recallTool" },
-              { label: "禁言", value: "muteTool" },
-              { label: "查询成员信息", value: "memberInfoTool" }
+              { label: "🤏 戳一戳", value: "pokeTool" },
+              { label: "👍 点赞", value: "likeTool" },
+              { label: "🗑️ 撤回消息", value: "recallTool" },
+              { label: "🚫 禁言/解禁", value: "muteTool" },
+              { label: "👤 查询成员信息", value: "memberInfoTool" },
+              { label: "🔍 网络搜索", value: "searchTool" },
+              { label: "🖼️ 图片搜索", value: "imageSearchTool" },
+              { label: "🎵 音乐搜索", value: "musicTool" },
+              { label: "🌤️ 天气查询", value: "weatherTool" },
+              { label: "🌐 翻译", value: "translateTool" },
+              { label: "🔗 网页解析", value: "webParserTool" },
+              { label: "⏰ 定时提醒", value: "reminderTool" },
+              { label: "🎨 AI绘图", value: "drawTool" },
+              { label: "💬 聊天历史", value: "chatHistoryTool" }
             ]
           },
+        },
+        {
+          field: "smartMode.tools.maxToolRounds",
+          label: "最大工具调用轮数",
+          bottomHelpMessage: "单次对话中最多进行几轮工具调用。设置过大可能导致对话时间过长。",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 10, step: 1, defaultValue: 5 },
         },
         {
           label: '视频解析',
