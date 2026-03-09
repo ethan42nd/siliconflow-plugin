@@ -171,14 +171,111 @@ smartMode:
     debugLog: false
     # 功能生效群聊白名单
     groupList: []
-    selectedModel: "默认-SF小模型"
-    # 日常短平快提炼记忆提示词
+    # 用户黑名单（不收集这些用户的记忆）
+    blackList: []
+    
+    # ===== 结构化记忆配置 =====
+    # 是否启用新的结构化记忆系统（v2）
+    structuredMode: true
+    
+    # 自动触发阈值配置
+    autoExtract:
+      enable: true              # 是否启用自动提炼
+      threshold: 10             # 缓冲区达到多少条消息时自动提炼
+      minInterval: 3600         # 两次自动提炼的最小间隔（秒）
+      maxBufferSize: 30         # 缓冲区最大保留消息数
+      bufferExpireDays: 7       # 缓冲区过期时间（天）
+    
+    # 记忆提炼模型配置
+    selectedModel: "默认-SF小模型"    # 日常提炼使用的小模型
+    syncModel: ""                      # 历史同步使用的大模型
+    syncDays: 3                        # 历史同步默认天数
+    
+    # 结构化提炼提示词（输出JSON格式）
+    structuredPrompt: |-
+      你是一个专业的用户信息分析助手。请分析用户的聊天记录，提取结构化信息。
+      
+      请严格按照以下JSON格式输出（不要包含任何其他内容，确保输出是合法的JSON）：
+      {
+        "facts": [
+          {
+            "category": "basic",
+            "key": "属性名称",
+            "value": "属性值",
+            "confidence": 0.9
+          }
+        ],
+        "episodes": [
+          {
+            "date": "YYYY-MM-DD",
+            "event": "事件描述",
+            "importance": 0.8,
+            "emotionalTone": "情绪色彩"
+          }
+        ],
+        "summary": {
+          "short": "一句话总结（30字内）",
+          "detailed": "详细描述（100字内）"
+        }
+      }
+      
+      category 可选值：
+      - basic: 基本信息（年龄、职业、学历、所在地等）
+      - interest: 兴趣爱好（游戏、动漫、运动、美食等）
+      - personality: 性格特点（内向/外向、幽默/严肃等）
+      - habit: 习惯偏好（作息、常用语、表情习惯等）
+      - relationship: 人际关系（朋友、家庭、宠物等）
+      - skill: 技能特长（编程、绘画、音乐等）
+      
+      注意：
+      1. 只输出JSON，不要任何解释或markdown代码块标记
+      2. confidence 范围 0-1，表示你对这个信息的确定程度
+      3. 如果信息与历史档案冲突，以新信息为准，但保留高置信度的旧信息
+      4. 不要编造信息，只从提供的消息中提取
+    
+    # 深度同步提示词（大模型使用）
+    syncPrompt: |-
+      你是一个顶级的心理侧写师。请根据用户的历史聊天记录，生成深度结构化档案。
+      
+      请严格按照以下JSON格式输出（不要包含任何其他内容）：
+      {
+        "facts": [
+          {
+            "category": "basic|interest|personality|habit|relationship|skill",
+            "key": "属性名",
+            "value": "属性值",
+            "confidence": 0.9
+          }
+        ],
+        "episodes": [
+          {
+            "date": "YYYY-MM-DD",
+            "event": "重要事件描述",
+            "importance": 0.8,
+            "emotionalTone": "情绪"
+          }
+        ],
+        "social": {
+          "closeFriends": ["好友昵称1", "好友昵称2"],
+          "activeTopics": ["常聊话题1", "常聊话题2"],
+          "roleInGroup": "群内角色（如：活跃分子/潜水员/开心果）"
+        },
+        "summary": {
+          "short": "一句话画像（50字内）",
+          "detailed": "详细画像（300字内）"
+        }
+      }
+    
+    # 记忆整合策略配置
+    consolidation:
+      similarityThreshold: 0.85   # 事实相似度阈值（用于去重）
+      maxFactsPerCategory: 20     # 每类事实最大数量
+      retentionDays: 90           # 事实保留天数（0=永久）
+      confidenceThreshold: 0.3    # 最低置信度（低于此值的事实会被删除）
+      mergeStrategy: "newer"      # 冲突解决策略：newer(新优先)/higher(高置信度优先)
+    
+    # 兼容旧版配置（保留）
     prompt: "你是一个专门分析用户心理和性格的AI侧写师。你的任务是根据用户的【历史印象档案】和【近期发言记录】，更新并输出该用户最新的【个人画像】。要求：1.语言必须极其简练，像一份档案标签，总字数绝对不要超过50字。2.不要任何开场白或解释，直接输出提炼后的画像。"
-    # 同步拉取长记忆模型配置
-    syncModel: "" 
-    syncDays: 3   
-    # 深度结构化长记忆提示词
-    syncPrompt: "你是一个顶级的心理侧写师。你的任务是根据用户的【历史印象档案】和【近期发言记录】，更新并输出该用户最新的【长期结构化档案】。\n\n请你严格按照以下 Markdown 格式输出（总字数在 200-300 字左右）：\n\n### 🎭 核心人设（静态保留）\n(综合历史印象，用 2-3 句话总结他的底层性格、语言习惯和口头禅。这部分如无极大反转，请尽量继承历史信息)\n\n### 🌟 兴趣与立场（逐步累积）\n(他喜欢什么事物？对某些话题有什么固定立场？在此处不断累加，不要轻易删减以前的爱好)\n\n### 📅 近期动态与状态（滚动更新）\n(根据他最近的发言，总结他这几天在关注什么、做了什么事、当下的情绪状态是什么)\n\n⚠️ 绝对规则：\n1. 不要任何开场白或解释说明，直接输出这三个带有 ### 标题的内容。\n2. 即使近期发言很水，也不要清空核心人设和兴趣。\n3. 如果发现他在发病或玩梗，客观记录到动态中。"
   tools:
     enable: false
     selectedModel: "默认-SF小模型"

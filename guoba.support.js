@@ -2293,6 +2293,92 @@ export function supportGuoba() {
         },
         {
           component: "Divider",
+          label: "结构化记忆配置(v2)",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          field: "smartMode.memory.structuredMode",
+          label: "启用结构化记忆",
+          bottomHelpMessage: "开启后使用新的结构化记忆系统，支持按类别存储、自动去重、冲突解决等高级功能。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.memory.autoExtract.enable",
+          label: "启用自动提炼",
+          bottomHelpMessage: "开启后，当缓冲区消息达到阈值时会自动触发记忆提炼（无需手动#提取记忆）。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.memory.autoExtract.threshold",
+          label: "自动提炼阈值",
+          bottomHelpMessage: "缓冲区达到多少条消息时自动触发提炼。建议值：5-15条。",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 50, step: 1 },
+        },
+        {
+          field: "smartMode.memory.autoExtract.minInterval",
+          label: "自动提炼间隔(秒)",
+          bottomHelpMessage: "两次自动提炼的最小间隔，防止频繁调用API。建议值：1800-7200秒（30分钟-2小时）。",
+          component: "InputNumber",
+          componentProps: { min: 60, max: 86400, step: 60 },
+        },
+        {
+          field: "smartMode.memory.autoExtract.maxBufferSize",
+          label: "缓冲区最大条数",
+          bottomHelpMessage: "缓冲区最多保留多少条消息，超过后会自动丢弃旧消息。建议值：20-50条。",
+          component: "InputNumber",
+          componentProps: { min: 10, max: 100, step: 5 },
+        },
+        {
+          component: "Divider",
+          label: "记忆整合策略",
+          componentProps: { orientation: "left", plain: true, style: { marginTop: '10px' } },
+        },
+        {
+          field: "smartMode.memory.consolidation.similarityThreshold",
+          label: "相似度阈值",
+          bottomHelpMessage: "用于事实去重，当两个事实的相似度超过此阈值时视为重复。建议值：0.8-0.9。",
+          component: "InputNumber",
+          componentProps: { min: 0.5, max: 1, step: 0.05 },
+        },
+        {
+          field: "smartMode.memory.consolidation.maxFactsPerCategory",
+          label: "每类最大事实数",
+          bottomHelpMessage: "每个类别最多保留多少条事实，超过后会删除旧的/低置信度的。建议值：10-30。",
+          component: "InputNumber",
+          componentProps: { min: 5, max: 100, step: 5 },
+        },
+        {
+          field: "smartMode.memory.consolidation.confidenceThreshold",
+          label: "最低置信度",
+          bottomHelpMessage: "低于此置信度的事实会被自动清理。建议值：0.3-0.5。",
+          component: "InputNumber",
+          componentProps: { min: 0, max: 1, step: 0.1 },
+        },
+        {
+          field: "smartMode.memory.consolidation.retentionDays",
+          label: "事实保留天数",
+          bottomHelpMessage: "事实最多保留多少天，0表示永久保留。建议值：30-90天。",
+          component: "InputNumber",
+          componentProps: { min: 0, max: 365, step: 1 },
+        },
+        {
+          component: "Divider",
+          label: "结构化提示词配置",
+          componentProps: { orientation: "left", plain: true, style: { marginTop: '10px' } },
+        },
+        {
+          field: "smartMode.memory.structuredPrompt",
+          label: "结构化提炼提示词",
+          bottomHelpMessage: "指导模型输出JSON格式结构化记忆的提示词。非专业人士请勿修改！",
+          component: "InputTextArea",
+          componentProps: {
+            rows: 15,
+            placeholder: "提示模型输出JSON格式的结构化记忆..."
+          }
+        },
+        {
+          component: "Divider",
           label: "工具配置",
           componentProps: { orientation: "left", plain: true },
         },
