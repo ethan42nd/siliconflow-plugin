@@ -2480,6 +2480,12 @@ export function supportGuoba() {
           component: "Switch",
         },
         {
+          field: "smartMode.memory.injectToChat",
+          label: "对话中注入记忆",
+          bottomHelpMessage: "开启后，AI对话时会自动注入对方的记忆信息，让回复更个性化。",
+          component: "Switch",
+        },
+        {
           field: "smartMode.memory.logEnable",
           label: "收集器日志输出",
           bottomHelpMessage: "开启后，每次成功拦截并缓存群友发言时，会在控制台打印日志。日常使用建议关闭以防刷屏。",

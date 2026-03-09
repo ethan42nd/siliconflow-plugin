@@ -293,6 +293,9 @@ export class UserMemory extends plugin {
         { reg: '^#记忆详情$', fnc: 'viewMemoryDetail' },
         { reg: '^#(修改|设定)记忆\s*(.*)$', fnc: 'setMemory' },
         { reg: '^#(清空|删除)记忆$', fnc: 'clearMemory' },
+        { reg: '^#查看记忆.*$', fnc: 'adminViewMemory' },
+        { reg: '^#删除(他的|她的|其)记忆.*$', fnc: 'adminClearMemory' },
+        { reg: '^#记忆统计$', fnc: 'memoryStats' },
         { reg: '', fnc: 'collectMessage', log: false }
       ]
     })
@@ -1079,6 +1082,174 @@ export class UserMemory extends plugin {
 
   async getRawMemory(groupId, userId) {
     return await this.getStructuredMemory(groupId, userId)
+  }
+
+  // ==================== 8. 主人管理指令 ====================
+
+  /**
+   * 主人查看他人记忆 #查看记忆 @某人
+   */
+  async adminViewMemory(e) {
+    if (!e.isMaster) return e.reply('仅主人可以使用此指令！')
+    if (!e.isGroup) return e.reply('请在群聊中使用此功能。')
+
+    const groupId = String(e.group_id)
+    let targetUserId = e.at
+
+    // 如果没有@，尝试从消息中提取QQ号
+    if (!targetUserId) {
+      const match = e.msg.match(/(\d{5,11})/)
+      if (match) targetUserId = match[1]
+    }
+
+    if (!targetUserId) {
+      return e.reply('请@要查看的用户，或提供QQ号。')
+    }
+
+    const memory = await this.getStructuredMemory(groupId, String(targetUserId))
+
+    if (!memory.facts || memory.facts.length === 0) {
+      return e.reply('该用户暂无记忆档案。')
+    }
+
+    // 获取用户信息
+    let targetName = targetUserId
+    const member = Bot.gml.get(Number(groupId))?.get(Number(targetUserId))
+    if (member) targetName = member.card || member.nickname || targetUserId
+
+    const lines = [
+      `🗂️ 【${targetName} 的记忆档案】`,
+      `用户ID：${targetUserId}`,
+      `首次记录：${new Date(memory.meta.firstSeen).toLocaleString()}`,
+      `最后更新：${new Date(memory.meta.lastUpdated).toLocaleString()}`,
+      '',
+      '📊 统计：',
+      `  事实记录：${memory.facts.length} 条`,
+      `  事件记录：${memory.episodes?.length || 0} 个`,
+      '',
+      '📋 所有事实：'
+    ]
+
+    memory.facts.forEach((f, idx) => {
+      lines.push(`${idx + 1}. [${f.category}] ${f.key}=${f.value} (置信:${f.confidence}, 确认:${f.count}次)`)
+    })
+
+    if (memory.summary?.detailed) {
+      lines.push('', '📝 详细画像：', memory.summary.detailed)
+    }
+
+    const common = await import('../../../lib/common/common.js').catch(() => null)
+    if (common?.makeForwardMsg) {
+      const forwardMsg = await common.makeForwardMsg(e, lines, `${targetName}的记忆档案`)
+      return e.reply(forwardMsg)
+    }
+
+    return e.reply(lines.join('\n'))
+  }
+
+  /**
+   * 主人删除他人记忆 #删除他的记忆 @某人
+   */
+  async adminClearMemory(e) {
+    if (!e.isMaster) return e.reply('仅主人可以使用此指令！')
+    if (!e.isGroup) return e.reply('请在群聊中使用此功能。')
+
+    const groupId = String(e.group_id)
+    let targetUserId = e.at
+
+    // 如果没有@，尝试从消息中提取QQ号
+    if (!targetUserId) {
+      const match = e.msg.match(/(\d{5,11})/)
+      if (match) targetUserId = match[1]
+    }
+
+    if (!targetUserId) {
+      return e.reply('请@要删除记忆的用户，或提供QQ号。')
+    }
+
+    // 获取用户信息
+    let targetName = targetUserId
+    const member = Bot.gml.get(Number(groupId))?.get(Number(targetUserId))
+    if (member) targetName = member.card || member.nickname || targetUserId
+
+    // 删除记忆
+    await redis.del(REDIS_KEYS.STRUCTURED(groupId, String(targetUserId)))
+    await redis.del(REDIS_KEYS.BUFFER(groupId, String(targetUserId)))
+    await redis.del(REDIS_KEYS.LAST_EXTRACT(groupId, String(targetUserId)))
+
+    return e.reply(`💥 ${targetName} 的记忆档案已被彻底清空！`)
+  }
+
+  /**
+   * 记忆统计 #记忆统计
+   */
+  async memoryStats(e) {
+    if (!e.isGroup) return e.reply('请在群聊中使用此功能。')
+
+    const groupId = String(e.group_id)
+    
+    // 扫描该群的所有记忆
+    const pattern = REDIS_KEYS.STRUCTURED(groupId, '*')
+    const keys = await redis.keys(pattern.replace('*', '*'))
+    
+    if (!keys || keys.length === 0) {
+      return e.reply('📭 本群暂无记忆档案\n\n多发几条消息，或者发送 #提取记忆 来生成档案~')
+    }
+
+    // 收集统计信息
+    let totalFacts = 0
+    let totalEpisodes = 0
+    const userMemories = []
+
+    for (const key of keys) {
+      const data = await redis.get(key)
+      if (data) {
+        const memory = safeJsonParse(data)
+        if (memory) {
+          // 从key中提取userId
+          const userId = key.split(':').pop()
+          let userName = userId
+          const member = Bot.gml.get(Number(groupId))?.get(Number(userId))
+          if (member) userName = member.card || member.nickname || userId
+
+          totalFacts += memory.facts?.length || 0
+          totalEpisodes += memory.episodes?.length || 0
+          userMemories.push({
+            userId,
+            userName,
+            factsCount: memory.facts?.length || 0,
+            lastUpdated: memory.meta?.lastUpdated
+          })
+        }
+      }
+    }
+
+    // 按最近更新时间排序
+    userMemories.sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0))
+
+    const lines = [
+      '📊 【本群记忆统计】',
+      `━━━━━━━━━━━━━━`,
+      `📝 记忆档案总数：${userMemories.length} 份`,
+      `📌 事实记录总数：${totalFacts} 条`,
+      `📅 事件记录总数：${totalEpisodes} 个`,
+      '',
+      '👥 记忆档案列表（最近更新）：'
+    ]
+
+    userMemories.slice(0, 10).forEach((user, idx) => {
+      const lastUpdate = user.lastUpdated ? new Date(user.lastUpdated).toLocaleDateString() : '未知'
+      lines.push(`  ${idx + 1}. ${user.userName} - ${user.factsCount}条事实 (更新于 ${lastUpdate})`)
+    })
+
+    if (userMemories.length > 10) {
+      lines.push(`  ... 还有 ${userMemories.length - 10} 人`)
+    }
+
+    lines.push(`━━━━━━━━━━━━━━`)
+    lines.push(`主人可使用 #查看记忆 @某人 查看详情`)
+
+    return e.reply(lines.join('\n'))
   }
 }
 
