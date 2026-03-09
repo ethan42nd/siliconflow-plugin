@@ -1,19 +1,36 @@
 // 工具导出文件
-export { AbstractTool } from './AbstractTool.js'
-export { PokeTool } from './PokeTool.js'
-export { LikeTool } from './LikeTool.js'
-export { RecallTool } from './RecallTool.js'
-export { MuteTool } from './MuteTool.js'
-export { MemberInfoTool } from './MemberInfoTool.js'
-export { SearchTool } from './SearchTool.js'
-export { ImageSearchTool } from './ImageSearchTool.js'
-export { MusicTool } from './MusicTool.js'
-export { WeatherTool } from './WeatherTool.js'
-export { TranslateTool } from './TranslateTool.js'
-export { WebParserTool } from './WebParserTool.js'
-export { ReminderTool, checkPendingReminders } from './ReminderTool.js'
-export { DrawTool } from './DrawTool.js'
-export { ChatHistoryTool } from './ChatHistoryTool.js'
+import { AbstractTool } from './AbstractTool.js'
+import { PokeTool } from './PokeTool.js'
+import { LikeTool } from './LikeTool.js'
+import { RecallTool } from './RecallTool.js'
+import { MuteTool } from './MuteTool.js'
+import { MemberInfoTool } from './MemberInfoTool.js'
+import { SearchTool } from './SearchTool.js'
+import { ImageSearchTool } from './ImageSearchTool.js'
+import { MusicTool } from './MusicTool.js'
+import { WeatherTool } from './WeatherTool.js'
+import { TranslateTool } from './TranslateTool.js'
+import { WebParserTool } from './WebParserTool.js'
+import { ReminderTool, checkPendingReminders } from './ReminderTool.js'
+import { DrawTool } from './DrawTool.js'
+import { ChatHistoryTool } from './ChatHistoryTool.js'
+
+// 重新导出
+export { AbstractTool }
+export { PokeTool }
+export { LikeTool }
+export { RecallTool }
+export { MuteTool }
+export { MemberInfoTool }
+export { SearchTool }
+export { ImageSearchTool }
+export { MusicTool }
+export { WeatherTool }
+export { TranslateTool }
+export { WebParserTool }
+export { ReminderTool, checkPendingReminders }
+export { DrawTool }
+export { ChatHistoryTool }
 
 // 工具映射表
 export const TOOL_MAP = {
