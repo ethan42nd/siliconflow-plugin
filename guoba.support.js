@@ -13,6 +13,263 @@ if (smartModelOptions.length === 0) {
 }
 // ----------------------------------------------------
 
+// --- 【新增】结构化记忆提示词预设 ---
+const MEMORY_PROMPT_PRESETS = {
+  standard: {
+    name: '标准模式（推荐）',
+    description: '平衡的信息提取，适合大多数场景',
+    structuredPrompt: `你是一个专业的用户信息分析助手。请分析用户的聊天记录，提取结构化信息。
+
+请严格按照以下JSON格式输出（不要包含任何其他内容，确保输出是合法的JSON）：
+{
+  "facts": [
+    {
+      "category": "basic",
+      "key": "属性名称",
+      "value": "属性值",
+      "confidence": 0.9
+    }
+  ],
+  "episodes": [
+    {
+      "date": "YYYY-MM-DD",
+      "event": "事件描述",
+      "importance": 0.8,
+      "emotionalTone": "情绪色彩"
+    }
+  ],
+  "summary": {
+    "short": "一句话总结（30字内）",
+    "detailed": "详细描述（100字内）"
+  }
+}
+
+category 可选值：
+- basic: 基本信息（年龄、职业、学历、所在地等）
+- interest: 兴趣爱好（游戏、动漫、运动、美食等）
+- personality: 性格特点（内向/外向、幽默/严肃等）
+- habit: 习惯偏好（作息、常用语、表情习惯等）
+- relationship: 人际关系（朋友、家庭、宠物等）
+- skill: 技能特长（编程、绘画、音乐等）
+
+注意：
+1. 只输出JSON，不要任何解释或markdown代码块标记
+2. confidence 范围 0-1，表示你对这个信息的确定程度
+3. 如果信息与历史档案冲突，以新信息为准，但保留高置信度的旧信息
+4. 不要编造信息，只从提供的消息中提取`,
+    syncPrompt: `你是一个顶级的心理侧写师。请根据用户的历史聊天记录，生成深度结构化档案。
+
+请严格按照以下JSON格式输出（不要包含任何其他内容）：
+{
+  "facts": [
+    {
+      "category": "basic|interest|personality|habit|relationship|skill",
+      "key": "属性名",
+      "value": "属性值",
+      "confidence": 0.9
+    }
+  ],
+  "episodes": [
+    {
+      "date": "YYYY-MM-DD",
+      "event": "重要事件描述",
+      "importance": 0.8,
+      "emotionalTone": "情绪"
+    }
+  ],
+  "social": {
+    "closeFriends": ["好友昵称1", "好友昵称2"],
+    "activeTopics": ["常聊话题1", "常聊话题2"],
+    "roleInGroup": "群内角色（如：活跃分子/潜水员/开心果）"
+  },
+  "summary": {
+    "short": "一句话画像（50字内）",
+    "detailed": "详细画像（300字内）"
+  }
+}
+
+注意：
+1. 只输出JSON，不要任何解释
+2. 结合历史档案进行分析，不要遗漏重要信息
+3. 确保JSON格式合法`},
+
+  concise: {
+    name: '简洁模式',
+    description: '只提取关键信息，响应更快，Token消耗更少',
+    structuredPrompt: `分析用户聊天，提取关键信息，输出JSON：
+{
+  "facts": [
+    {"category": "basic|interest|personality", "key": "属性", "value": "值", "confidence": 0.8}
+  ],
+  "episodes": [],
+  "summary": {"short": "一句话总结", "detailed": ""}
+}
+
+类别：basic(基本信息), interest(兴趣), personality(性格)
+只提取高置信度(>0.7)的关键信息，不要冗余内容。`,
+    syncPrompt: `深度分析用户历史记录，输出JSON档案：
+{
+  "facts": [{"category": "basic|interest|personality", "key": "", "value": "", "confidence": 0.9}],
+  "episodes": [{"date": "", "event": "", "importance": 0.8, "emotionalTone": ""}],
+  "social": {"closeFriends": [], "activeTopics": [], "roleInGroup": ""},
+  "summary": {"short": "", "detailed": ""}
+}
+
+只记录重要事实和事件，简洁高效。`},
+
+  detailed: {
+    name: '详细模式',
+    description: '提取更丰富的细节，适合深度用户画像',
+    structuredPrompt: `你是专业用户分析师。深入分析聊天记录，提取丰富的用户信息。
+
+输出JSON格式：
+{
+  "facts": [
+    {
+      "category": "basic|interest|personality|habit|relationship|skill",
+      "key": "具体属性名",
+      "value": "详细属性值",
+      "confidence": 0.85
+    }
+  ],
+  "episodes": [
+    {
+      "date": "YYYY-MM-DD",
+      "event": "详细事件描述，包含上下文",
+      "importance": 0.8,
+      "emotionalTone": "具体情绪描述"
+    }
+  ],
+  "summary": {
+    "short": "精炼的一句话画像",
+    "detailed": "详细的用户画像描述，包含性格特点、兴趣爱好、行为模式等多维度分析"
+  }
+}
+
+要求：
+1. 仔细分析每条消息，提取隐含信息
+2. 关注用户的语言风格、常用词汇、表达习惯
+3. 记录具体细节而非笼统描述
+4. 对不确定的信息给予较低置信度
+5. 必须确保输出合法JSON`,
+    syncPrompt: `你是资深用户研究专家。基于大量历史数据，生成深度用户画像档案。
+
+输出JSON格式：
+{
+  "facts": [
+    {"category": "basic|interest|personality|habit|relationship|skill", "key": "", "value": "", "confidence": 0.9}
+  ],
+  "episodes": [
+    {"date": "YYYY-MM-DD", "event": "", "importance": 0.8, "emotionalTone": ""}
+  ],
+  "social": {
+    "closeFriends": [],
+    "activeTopics": [],
+    "roleInGroup": ""
+  },
+  "summary": {
+    "short": "",
+    "detailed": ""
+  }
+}
+
+分析要求：
+1. 结合历史档案，进行深度综合分析
+2. 识别用户的行为模式、价值观、社交特点
+3. 记录重要的互动事件和情感变化
+4. 推断用户的潜在需求和偏好
+5. 输出完整、详细的结构化档案`},
+
+  roleplay: {
+    name: '角色扮演模式',
+    description: '适合RP群，提取角色设定和世界观信息',
+    structuredPrompt: `分析群聊中的角色扮演信息，提取角色设定。
+
+输出JSON：
+{
+  "facts": [
+    {"category": "basic", "key": "角色名", "value": "", "confidence": 0.9},
+    {"category": "basic", "key": "性别/年龄", "value": "", "confidence": 0.8},
+    {"category": "interest", "key": "喜好", "value": "", "confidence": 0.7},
+    {"category": "personality", "key": "性格", "value": "", "confidence": 0.8},
+    {"category": "relationship", "key": "关系", "value": "", "confidence": 0.7},
+    {"category": "skill", "key": "能力/技能", "value": "", "confidence": 0.7}
+  ],
+  "episodes": [
+    {"date": "", "event": "剧情事件", "importance": 0.8, "emotionalTone": ""}
+  ],
+  "summary": {
+    "short": "角色一句话简介",
+    "detailed": "角色详细设定"
+  }
+}
+
+注意区分角色扮演内容和现实信息，优先记录角色设定。`,
+    syncPrompt: `深度分析RP群历史记录，整理角色档案。
+
+输出JSON：
+{
+  "facts": [{"category": "", "key": "", "value": "", "confidence": 0.9}],
+  "episodes": [{"date": "", "event": "", "importance": 0.8, "emotionalTone": ""}],
+  "social": {"closeFriends": [], "activeTopics": [], "roleInGroup": "剧情定位"},
+  "summary": {"short": "", "detailed": ""}
+}
+
+重点：
+1. 梳理角色的完整设定和背景故事
+2. 记录重要的剧情发展和人物关系变化
+3. 分析角色的成长轨迹和行为模式
+4. 区分不同时间线的剧情`},
+
+  game: {
+    name: '游戏群模式',
+    description: '适合游戏群，重点提取游戏ID、段位、常用英雄等',
+    structuredPrompt: `分析游戏群聊天记录，提取游戏相关信息。
+
+输出JSON：
+{
+  "facts": [
+    {"category": "basic", "key": "游戏ID", "value": "", "confidence": 0.9},
+    {"category": "skill", "key": "段位/等级", "value": "", "confidence": 0.8},
+    {"category": "interest", "key": "常玩英雄/角色", "value": "", "confidence": 0.8},
+    {"category": "interest", "key": "擅长位置", "value": "", "confidence": 0.7},
+    {"category": "habit", "key": "游戏习惯", "value": "", "confidence": 0.6}
+  ],
+  "episodes": [
+    {"date": "", "event": "上分/掉分、精彩操作等", "importance": 0.7, "emotionalTone": ""}
+  ],
+  "summary": {
+    "short": "玩家简介",
+    "detailed": "游戏风格和特点"
+  }
+}
+
+重点提取游戏ID、段位、常用角色等硬核信息。`,
+    syncPrompt: `分析游戏群历史，整理玩家档案。
+
+输出JSON：
+{
+  "facts": [{"category": "", "key": "", "value": "", "confidence": 0.9}],
+  "episodes": [{"date": "", "event": "", "importance": 0.8, "emotionalTone": ""}],
+  "social": {"closeFriends": ["经常组队的队友"], "activeTopics": ["常讨论的游戏"], "roleInGroup": "群内游戏水平定位"},
+  "summary": {"short": "", "detailed": ""}
+}
+
+关注：
+1. 游戏技术成长和段位变化
+2. 常用英雄/角色的演变
+3. 游戏态度和团队协作风格
+4. 突出的游戏事件和成就`}}
+};
+
+// 预设选项（用于锅巴下拉菜单）
+const promptPresetOptions = Object.entries(MEMORY_PROMPT_PRESETS).map(([key, preset]) => ({
+  label: `${preset.name} - ${preset.description}`,
+  value: key
+}));
+
+// ----------------------------------------------------
+
 export function supportGuoba() {
   // /** 群列表（每个Bot-qq单独设置） */
   // let groupList_botUni = Array.from(Bot.gl.values())
@@ -2212,7 +2469,7 @@ export function supportGuoba() {
         },
         {
           component: "Divider",
-          label: "记忆配置",
+          label: "🧠 结构化记忆系统",
           componentProps: { orientation: "left", plain: true },
         },
         {
@@ -2229,7 +2486,7 @@ export function supportGuoba() {
         },
         {
           field: "smartMode.memory.debugLog",
-          label: "API调试日志(硬核)",
+          label: "API调试日志",
           bottomHelpMessage: "开启后会在控制台打印发送给大模型的完整结构体，以及模型返回的原始JSON。专用于排查提炼报错或内容被截断的问题。",
           component: "Switch",
         },
@@ -2242,12 +2499,28 @@ export function supportGuoba() {
             allowAdd: true,
             allowDel: true,
             mode: 'multiple',
-            options: groupList_total // 直接调用 Yunzai 获取的群列表
+            options: groupList_total
           }
         },
         {
+          field: 'smartMode.memory.blackList',
+          label: '用户黑名单',
+          bottomHelpMessage: '填入不需要收集记忆的QQ号（如其他机器人、不想被收集的用户）。回车添加。',
+          component: 'GTags',
+          componentProps: {
+            placeholder: '输入QQ号并回车',
+            allowAdd: true,
+            allowDel: true,
+          }
+        },
+        {
+          component: "Divider",
+          label: "模型配置",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
           field: "smartMode.memory.selectedModel",
-          label: "记忆提炼模型（小）",
+          label: "日常提炼模型（小）",
           bottomHelpMessage: "💡 提炼记忆是高频后台任务，推荐使用免费/便宜的 7B~32B 级别模型（如 Qwen2.5-7B-Instruct）。注：为节省天价 Token，插件会自动将群友发送的图片/表情转化为 [发送了一张图片] 文本占位符，普通文本模型即可完美处理，无需强上视觉模型！",
           component: "Select",
           componentProps: {
@@ -2266,41 +2539,12 @@ export function supportGuoba() {
           label: "历史同步天数",
           bottomHelpMessage: "设置每次同步拉取过去几天的聊天记录（天数越多，消耗的 Token 越大）",
           component: "InputNumber",
-          componentProps: { min: 1, max: 30, step: 1 },
-        },
-        {
-          field: "smartMode.memory.prompt",
-          label: "日常提炼提示词(小)",
-          bottomHelpMessage: "指导小模型进行轻量级提炼的提示词，要求严格且字数较少（如50字内）。",
-          component: "InputTextArea",
-        },
-        {
-          field: "smartMode.memory.syncPrompt",
-          label: "历史同步提示词(大)",
-          bottomHelpMessage: "指导大模型处理海量聊天记录的提示词，推荐使用结构化Markdown输出，生成深度长期记忆档案。",
-          component: "InputTextArea",
-        },
-        {
-          field: 'smartMode.memory.blackList',
-          label: '用户黑名单',
-          bottomHelpMessage: '填入不需要收集记忆的QQ号（如其他机器人、不想被收集的用户）。回车添加。',
-          component: 'GTags',
-          componentProps: {
-            placeholder: '输入QQ号并回车',
-            allowAdd: true,
-            allowDel: true,
-          }
+          componentProps: { min: 1, max: 30, step: 1, defaultValue: 3 },
         },
         {
           component: "Divider",
-          label: "结构化记忆配置(v2)",
+          label: "自动提炼配置",
           componentProps: { orientation: "left", plain: true },
-        },
-        {
-          field: "smartMode.memory.structuredMode",
-          label: "启用结构化记忆",
-          bottomHelpMessage: "开启后使用新的结构化记忆系统，支持按类别存储、自动去重、冲突解决等高级功能。",
-          component: "Switch",
         },
         {
           field: "smartMode.memory.autoExtract.enable",
@@ -2313,68 +2557,107 @@ export function supportGuoba() {
           label: "自动提炼阈值",
           bottomHelpMessage: "缓冲区达到多少条消息时自动触发提炼。建议值：5-15条。",
           component: "InputNumber",
-          componentProps: { min: 1, max: 50, step: 1 },
+          componentProps: { min: 1, max: 50, step: 1, defaultValue: 10 },
         },
         {
           field: "smartMode.memory.autoExtract.minInterval",
           label: "自动提炼间隔(秒)",
           bottomHelpMessage: "两次自动提炼的最小间隔，防止频繁调用API。建议值：1800-7200秒（30分钟-2小时）。",
           component: "InputNumber",
-          componentProps: { min: 60, max: 86400, step: 60 },
+          componentProps: { min: 60, max: 86400, step: 60, defaultValue: 3600 },
         },
         {
           field: "smartMode.memory.autoExtract.maxBufferSize",
           label: "缓冲区最大条数",
           bottomHelpMessage: "缓冲区最多保留多少条消息，超过后会自动丢弃旧消息。建议值：20-50条。",
           component: "InputNumber",
-          componentProps: { min: 10, max: 100, step: 5 },
+          componentProps: { min: 10, max: 100, step: 5, defaultValue: 30 },
+        },
+        {
+          field: "smartMode.memory.autoExtract.bufferExpireDays",
+          label: "缓冲区过期天数",
+          bottomHelpMessage: "缓冲区消息保留多少天后自动删除。建议值：7天。",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 30, step: 1, defaultValue: 7 },
         },
         {
           component: "Divider",
           label: "记忆整合策略",
-          componentProps: { orientation: "left", plain: true, style: { marginTop: '10px' } },
+          componentProps: { orientation: "left", plain: true },
         },
         {
           field: "smartMode.memory.consolidation.similarityThreshold",
           label: "相似度阈值",
           bottomHelpMessage: "用于事实去重，当两个事实的相似度超过此阈值时视为重复。建议值：0.8-0.9。",
           component: "InputNumber",
-          componentProps: { min: 0.5, max: 1, step: 0.05 },
+          componentProps: { min: 0.5, max: 1, step: 0.05, defaultValue: 0.85 },
         },
         {
           field: "smartMode.memory.consolidation.maxFactsPerCategory",
           label: "每类最大事实数",
           bottomHelpMessage: "每个类别最多保留多少条事实，超过后会删除旧的/低置信度的。建议值：10-30。",
           component: "InputNumber",
-          componentProps: { min: 5, max: 100, step: 5 },
+          componentProps: { min: 5, max: 100, step: 5, defaultValue: 20 },
         },
         {
           field: "smartMode.memory.consolidation.confidenceThreshold",
           label: "最低置信度",
           bottomHelpMessage: "低于此置信度的事实会被自动清理。建议值：0.3-0.5。",
           component: "InputNumber",
-          componentProps: { min: 0, max: 1, step: 0.1 },
+          componentProps: { min: 0, max: 1, step: 0.1, defaultValue: 0.3 },
         },
         {
           field: "smartMode.memory.consolidation.retentionDays",
           label: "事实保留天数",
           bottomHelpMessage: "事实最多保留多少天，0表示永久保留。建议值：30-90天。",
           component: "InputNumber",
-          componentProps: { min: 0, max: 365, step: 1 },
+          componentProps: { min: 0, max: 365, step: 1, defaultValue: 90 },
+        },
+        {
+          field: "smartMode.memory.consolidation.mergeStrategy",
+          label: "冲突解决策略",
+          bottomHelpMessage: "当新旧事实冲突时的处理策略。newer=新信息优先，higher=高置信度优先。",
+          component: "Select",
+          componentProps: {
+            options: [
+              { label: "新信息优先", value: "newer" },
+              { label: "高置信度优先", value: "higher" }
+            ],
+            defaultValue: "newer"
+          },
         },
         {
           component: "Divider",
-          label: "结构化提示词配置",
-          componentProps: { orientation: "left", plain: true, style: { marginTop: '10px' } },
+          label: "提示词配置（高级）",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          field: "smartMode.memory.promptPreset",
+          label: "提示词预设",
+          bottomHelpMessage: "选择适合你群聊类型的提示词预设。选择后下面的提示词会自动填充，也可以在此基础上自定义修改。",
+          component: "Select",
+          componentProps: {
+            options: promptPresetOptions,
+          },
         },
         {
           field: "smartMode.memory.structuredPrompt",
-          label: "结构化提炼提示词",
-          bottomHelpMessage: "指导模型输出JSON格式结构化记忆的提示词。非专业人士请勿修改！",
+          label: "日常提炼提示词（自定义）",
+          bottomHelpMessage: "指导模型输出JSON格式结构化记忆的提示词。选择上方预设会自动填充，也可手动编辑自定义。",
           component: "InputTextArea",
           componentProps: {
-            rows: 15,
-            placeholder: "提示模型输出JSON格式的结构化记忆..."
+            rows: 12,
+            placeholder: "选择上方预设或输入自定义提示词..."
+          }
+        },
+        {
+          field: "smartMode.memory.syncPrompt",
+          label: "历史同步提示词（自定义）",
+          bottomHelpMessage: "指导大模型进行深度历史分析的提示词。选择上方预设会自动填充，也可手动编辑自定义。",
+          component: "InputTextArea",
+          componentProps: {
+            rows: 12,
+            placeholder: "选择上方预设或输入自定义提示词..."
           }
         },
         {

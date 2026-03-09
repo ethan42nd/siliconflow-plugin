@@ -163,35 +163,41 @@ smart_APIList:
 
 smartMode:
   memory:
-    # 是否启用记忆功能
-    enable: false
-    # 记忆提取日志开关
-    logEnable: false
-    # API 请求调试日志开关
-    debugLog: false
-    # 功能生效群聊白名单
-    groupList: []
-    # 用户黑名单（不收集这些用户的记忆）
-    blackList: []
+    # ========== 基础开关 ==========
+    enable: false               # 是否启用记忆功能
+    logEnable: false            # 记忆提取日志开关
+    debugLog: false             # API 请求调试日志开关
+    groupList: []               # 功能生效群聊白名单（空=所有群）
+    blackList: []               # 用户黑名单（不收集这些用户的记忆）
     
-    # ===== 结构化记忆配置 =====
-    # 是否启用新的结构化记忆系统（v2）
-    structuredMode: true
-    
-    # 自动触发阈值配置
-    autoExtract:
-      enable: true              # 是否启用自动提炼
-      threshold: 10             # 缓冲区达到多少条消息时自动提炼
-      minInterval: 3600         # 两次自动提炼的最小间隔（秒）
-      maxBufferSize: 30         # 缓冲区最大保留消息数
-      bufferExpireDays: 7       # 缓冲区过期时间（天）
-    
-    # 记忆提炼模型配置
-    selectedModel: "默认-SF小模型"    # 日常提炼使用的小模型
-    syncModel: ""                      # 历史同步使用的大模型
+    # ========== 模型配置 ==========
+    selectedModel: "默认-SF小模型"    # 日常提炼使用的小模型（在上方接口列表中选择）
+    syncModel: ""                      # 历史同步使用的大模型（在上方接口列表中选择，可选）
     syncDays: 3                        # 历史同步默认天数
     
-    # 结构化提炼提示词（输出JSON格式）
+    # ========== 自动提炼配置 ==========
+    autoExtract:
+      enable: true              # 是否启用自动提炼
+      threshold: 10             # 缓冲区达到多少条消息时自动提炼（建议5-15）
+      minInterval: 3600         # 两次自动提炼的最小间隔（秒，建议1800-7200）
+      maxBufferSize: 30         # 缓冲区最大保留消息数（建议20-50）
+      bufferExpireDays: 7       # 缓冲区过期时间（天）
+    
+    # ========== 记忆整合策略 ==========
+    consolidation:
+      similarityThreshold: 0.85   # 事实相似度阈值（用于去重，建议0.8-0.9）
+      maxFactsPerCategory: 20     # 每类事实最大数量（建议10-30）
+      retentionDays: 90           # 事实保留天数（0=永久，建议30-90）
+      confidenceThreshold: 0.3    # 最低置信度（低于此值的事实会被删除，建议0.3-0.5）
+      mergeStrategy: "newer"      # 冲突解决策略：newer(新优先)/higher(高置信度优先)
+    
+    # ========== 提示词配置 ==========
+    # 提示词预设选择（在锅巴界面选择预设，会自动填充下面的提示词）
+    # 可选：standard(标准), concise(简洁), detailed(详细), roleplay(角色扮演), game(游戏群)
+    promptPreset: "standard"
+    
+    # 日常提炼提示词（JSON结构化输出）
+    # 默认使用标准模式，选择上方 preset 会自动更新
     structuredPrompt: |-
       你是一个专业的用户信息分析助手。请分析用户的聊天记录，提取结构化信息。
       
@@ -233,7 +239,7 @@ smartMode:
       3. 如果信息与历史档案冲突，以新信息为准，但保留高置信度的旧信息
       4. 不要编造信息，只从提供的消息中提取
     
-    # 深度同步提示词（大模型使用）
+    # 历史同步提示词（大模型深度分析使用）
     syncPrompt: |-
       你是一个顶级的心理侧写师。请根据用户的历史聊天记录，生成深度结构化档案。
       
@@ -265,17 +271,11 @@ smartMode:
           "detailed": "详细画像（300字内）"
         }
       }
-    
-    # 记忆整合策略配置
-    consolidation:
-      similarityThreshold: 0.85   # 事实相似度阈值（用于去重）
-      maxFactsPerCategory: 20     # 每类事实最大数量
-      retentionDays: 90           # 事实保留天数（0=永久）
-      confidenceThreshold: 0.3    # 最低置信度（低于此值的事实会被删除）
-      mergeStrategy: "newer"      # 冲突解决策略：newer(新优先)/higher(高置信度优先)
-    
-    # 兼容旧版配置（保留）
-    prompt: "你是一个专门分析用户心理和性格的AI侧写师。你的任务是根据用户的【历史印象档案】和【近期发言记录】，更新并输出该用户最新的【个人画像】。要求：1.语言必须极其简练，像一份档案标签，总字数绝对不要超过50字。2.不要任何开场白或解释，直接输出提炼后的画像。"
+      
+      注意：
+      1. 只输出JSON，不要任何解释
+      2. 结合历史档案进行分析，不要遗漏重要信息
+      3. 确保JSON格式合法
   tools:
     enable: false
     selectedModel: "默认-SF小模型"

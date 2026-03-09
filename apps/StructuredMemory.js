@@ -13,6 +13,252 @@ import fetch from 'node-fetch'
  * 5. 为 AI 对话提供记忆检索
  */
 
+// ==================== 提示词预设 ====================
+
+const PROMPT_PRESETS = {
+  standard: {
+    name: '标准模式（推荐）',
+    structuredPrompt: `你是一个专业的用户信息分析助手。请分析用户的聊天记录，提取结构化信息。
+
+请严格按照以下JSON格式输出（不要包含任何其他内容，确保输出是合法的JSON）：
+{
+  "facts": [
+    {
+      "category": "basic",
+      "key": "属性名称",
+      "value": "属性值",
+      "confidence": 0.9
+    }
+  ],
+  "episodes": [
+    {
+      "date": "YYYY-MM-DD",
+      "event": "事件描述",
+      "importance": 0.8,
+      "emotionalTone": "情绪色彩"
+    }
+  ],
+  "summary": {
+    "short": "一句话总结（30字内）",
+    "detailed": "详细描述（100字内）"
+  }
+}
+
+category 可选值：
+- basic: 基本信息（年龄、职业、学历、所在地等）
+- interest: 兴趣爱好（游戏、动漫、运动、美食等）
+- personality: 性格特点（内向/外向、幽默/严肃等）
+- habit: 习惯偏好（作息、常用语、表情习惯等）
+- relationship: 人际关系（朋友、家庭、宠物等）
+- skill: 技能特长（编程、绘画、音乐等）
+
+注意：
+1. 只输出JSON，不要任何解释或markdown代码块标记
+2. confidence 范围 0-1，表示你对这个信息的确定程度
+3. 如果信息与历史档案冲突，以新信息为准，但保留高置信度的旧信息
+4. 不要编造信息，只从提供的消息中提取`,
+    syncPrompt: `你是一个顶级的心理侧写师。请根据用户的历史聊天记录，生成深度结构化档案。
+
+请严格按照以下JSON格式输出（不要包含任何其他内容）：
+{
+  "facts": [
+    {
+      "category": "basic|interest|personality|habit|relationship|skill",
+      "key": "属性名",
+      "value": "属性值",
+      "confidence": 0.9
+    }
+  ],
+  "episodes": [
+    {
+      "date": "YYYY-MM-DD",
+      "event": "重要事件描述",
+      "importance": 0.8,
+      "emotionalTone": "情绪"
+    }
+  ],
+  "social": {
+    "closeFriends": ["好友昵称1", "好友昵称2"],
+    "activeTopics": ["常聊话题1", "常聊话题2"],
+    "roleInGroup": "群内角色（如：活跃分子/潜水员/开心果）"
+  },
+  "summary": {
+    "short": "一句话画像（50字内）",
+    "detailed": "详细画像（300字内）"
+  }
+}
+
+注意：
+1. 只输出JSON，不要任何解释
+2. 结合历史档案进行分析，不要遗漏重要信息
+3. 确保JSON格式合法`
+  },
+  concise: {
+    name: '简洁模式',
+    structuredPrompt: `分析用户聊天，提取关键信息，输出JSON：
+{
+  "facts": [
+    {"category": "basic|interest|personality", "key": "属性", "value": "值", "confidence": 0.8}
+  ],
+  "episodes": [],
+  "summary": {"short": "一句话总结", "detailed": ""}
+}
+
+类别：basic(基本信息), interest(兴趣), personality(性格)
+只提取高置信度(>0.7)的关键信息，不要冗余内容。`,
+    syncPrompt: `深度分析用户历史记录，输出JSON档案：
+{
+  "facts": [{"category": "basic|interest|personality", "key": "", "value": "", "confidence": 0.9}],
+  "episodes": [{"date": "", "event": "", "importance": 0.8, "emotionalTone": ""}],
+  "social": {"closeFriends": [], "activeTopics": [], "roleInGroup": ""},
+  "summary": {"short": "", "detailed": ""}
+}
+
+只记录重要事实和事件，简洁高效。`
+  },
+  detailed: {
+    name: '详细模式',
+    structuredPrompt: `你是专业用户分析师。深入分析聊天记录，提取丰富的用户信息。
+
+输出JSON格式：
+{
+  "facts": [
+    {
+      "category": "basic|interest|personality|habit|relationship|skill",
+      "key": "具体属性名",
+      "value": "详细属性值",
+      "confidence": 0.85
+    }
+  ],
+  "episodes": [
+    {
+      "date": "YYYY-MM-DD",
+      "event": "详细事件描述，包含上下文",
+      "importance": 0.8,
+      "emotionalTone": "具体情绪描述"
+    }
+  ],
+  "summary": {
+    "short": "精炼的一句话画像",
+    "detailed": "详细的用户画像描述，包含性格特点、兴趣爱好、行为模式等多维度分析"
+  }
+}
+
+要求：
+1. 仔细分析每条消息，提取隐含信息
+2. 关注用户的语言风格、常用词汇、表达习惯
+3. 记录具体细节而非笼统描述
+4. 对不确定的信息给予较低置信度
+5. 必须确保输出合法JSON`,
+    syncPrompt: `你是资深用户研究专家。基于大量历史数据，生成深度用户画像档案。
+
+输出JSON格式：
+{
+  "facts": [
+    {"category": "basic|interest|personality|habit|relationship|skill", "key": "", "value": "", "confidence": 0.9}
+  ],
+  "episodes": [
+    {"date": "YYYY-MM-DD", "event": "", "importance": 0.8, "emotionalTone": ""}
+  ],
+  "social": {
+    "closeFriends": [],
+    "activeTopics": [],
+    "roleInGroup": ""
+  },
+  "summary": {
+    "short": "",
+    "detailed": ""
+  }
+}
+
+分析要求：
+1. 结合历史档案，进行深度综合分析
+2. 识别用户的行为模式、价值观、社交特点
+3. 记录重要的互动事件和情感变化
+4. 推断用户的潜在需求和偏好
+5. 输出完整、详细的结构化档案`
+  },
+  roleplay: {
+    name: '角色扮演模式',
+    structuredPrompt: `分析群聊中的角色扮演信息，提取角色设定。
+
+输出JSON：
+{
+  "facts": [
+    {"category": "basic", "key": "角色名", "value": "", "confidence": 0.9},
+    {"category": "basic", "key": "性别/年龄", "value": "", "confidence": 0.8},
+    {"category": "interest", "key": "喜好", "value": "", "confidence": 0.7},
+    {"category": "personality", "key": "性格", "value": "", "confidence": 0.8},
+    {"category": "relationship", "key": "关系", "value": "", "confidence": 0.7},
+    {"category": "skill", "key": "能力/技能", "value": "", "confidence": 0.7}
+  ],
+  "episodes": [
+    {"date": "", "event": "剧情事件", "importance": 0.8, "emotionalTone": ""}
+  ],
+  "summary": {
+    "short": "角色一句话简介",
+    "detailed": "角色详细设定"
+  }
+}
+
+注意区分角色扮演内容和现实信息，优先记录角色设定。`,
+    syncPrompt: `深度分析RP群历史记录，整理角色档案。
+
+输出JSON：
+{
+  "facts": [{"category": "", "key": "", "value": "", "confidence": 0.9}],
+  "episodes": [{"date": "", "event": "", "importance": 0.8, "emotionalTone": ""}],
+  "social": {"closeFriends": [], "activeTopics": [], "roleInGroup": "剧情定位"},
+  "summary": {"short": "", "detailed": ""}
+}
+
+重点：
+1. 梳理角色的完整设定和背景故事
+2. 记录重要的剧情发展和人物关系变化
+3. 分析角色的成长轨迹和行为模式
+4. 区分不同时间线的剧情`
+  },
+  game: {
+    name: '游戏群模式',
+    structuredPrompt: `分析游戏群聊天记录，提取游戏相关信息。
+
+输出JSON：
+{
+  "facts": [
+    {"category": "basic", "key": "游戏ID", "value": "", "confidence": 0.9},
+    {"category": "skill", "key": "段位/等级", "value": "", "confidence": 0.8},
+    {"category": "interest", "key": "常玩英雄/角色", "value": "", "confidence": 0.8},
+    {"category": "interest", "key": "擅长位置", "value": "", "confidence": 0.7},
+    {"category": "habit", "key": "游戏习惯", "value": "", "confidence": 0.6}
+  ],
+  "episodes": [
+    {"date": "", "event": "上分/掉分、精彩操作等", "importance": 0.7, "emotionalTone": ""}
+  ],
+  "summary": {
+    "short": "玩家简介",
+    "detailed": "游戏风格和特点"
+  }
+}
+
+重点提取游戏ID、段位、常用角色等硬核信息。`,
+    syncPrompt: `分析游戏群历史，整理玩家档案。
+
+输出JSON：
+{
+  "facts": [{"category": "", "key": "", "value": "", "confidence": 0.9}],
+  "episodes": [{"date": "", "event": "", "importance": 0.8, "emotionalTone": ""}],
+  "social": {"closeFriends": ["经常组队的队友"], "activeTopics": ["常讨论的游戏"], "roleInGroup": "群内游戏水平定位"},
+  "summary": {"short": "", "detailed": ""}
+}
+
+关注：
+1. 游戏技术成长和段位变化
+2. 常用英雄/角色的演变
+3. 游戏态度和团队协作风格
+4. 突出的游戏事件和成就`
+  }
+};
+
 // ==================== 常量定义 ====================
 
 const REDIS_KEYS = {
@@ -110,6 +356,25 @@ function safeJsonParse(str, defaultValue = null) {
         return JSON.parse(str)
     } catch (e) {
         return defaultValue
+    }
+}
+
+/**
+ * 获取提示词（支持预设和自定义）
+ * @param {Object} memConf 记忆配置
+ * @param {boolean} isDeepSync 是否为深度同步
+ * @returns {string} 提示词
+ */
+function getPrompt(memConf, isDeepSync = false) {
+    const presetKey = memConf.promptPreset || 'standard'
+    const preset = PROMPT_PRESETS[presetKey]
+    
+    // 如果用户配置了自定义提示词，优先使用自定义的
+    // 否则使用预设的提示词
+    if (isDeepSync) {
+        return memConf.syncPrompt || (preset ? preset.syncPrompt : PROMPT_PRESETS.standard.syncPrompt)
+    } else {
+        return memConf.structuredPrompt || (preset ? preset.structuredPrompt : PROMPT_PRESETS.standard.structuredPrompt)
     }
 }
 
@@ -341,10 +606,8 @@ export class StructuredMemory extends plugin {
         // 获取现有记忆
         const existingMemory = await this.getStructuredMemory(groupId, userId)
 
-        // 准备提示词
-        const systemPrompt = isDeepSync 
-            ? (memConf.syncPrompt || memConf.structuredPrompt)
-            : memConf.structuredPrompt
+        // 准备提示词（支持预设和自定义）
+        const systemPrompt = getPrompt(memConf, isDeepSync)
 
         // 准备用户提示词
         const userPrompt = this.buildExtractionPrompt(existingMemory, messages, isDeepSync)
