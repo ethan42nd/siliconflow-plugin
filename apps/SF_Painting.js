@@ -1408,6 +1408,7 @@ export class SF_Painting extends plugin {
         const mr = await getModelRouter();
         const tools = tm.getToolInfos();
         const debugLog = config_date.smartMode?.tools?.debugLog;
+        const searchConfig = config_date.smartMode?.tools?.searchConfig || {};
         
         if (!tools || tools.length === 0) {
             logger.debug('[sf插件][工具调用] 没有启用的工具，跳过工具模式');
@@ -1430,6 +1431,7 @@ export class SF_Painting extends plugin {
         let messages = [...baseMessages]; // 从基础消息开始
         let round = 0;
         let hasExecutedTools = false;
+        let pendingSearchResults = []; // 暂存搜索结果，等AI回复后再发送
 
         while (round < maxToolRounds) {
             round++;
@@ -1508,6 +1510,20 @@ export class SF_Painting extends plugin {
                     tool_calls: aiResponse.toolCalls
                 });
 
+                // 检查是否需要发送搜索提示
+                const hasSearchTool = aiResponse.toolCalls.some(tc => tc.function?.name === 'searchTool');
+                if (hasSearchTool) {
+                    // 发送表情回应（如果启用）
+                    if (searchConfig.useEmojiReaction && e.message_id) {
+                        await this.sendEmojiReaction(e, searchConfig.thinkingEmoji || '176');
+                    }
+                    // 发送文字提示（如果启用）
+                    if (searchConfig.showThinkingTip !== false) {
+                        const tipMsg = searchConfig.thinkingTipMsg || '派蒙帮你去搜索一下哦，稍等片刻~';
+                        await e.reply(tipMsg);
+                    }
+                }
+
                 // 执行工具调用
                 const toolResults = await tm.processToolCalls(aiResponse.toolCalls, e);
                 
@@ -1520,7 +1536,7 @@ export class SF_Painting extends plugin {
                     logger.mark(`===========================================\n`);
                 }
                 
-                // 检查是否有搜索结果需要转发
+                // 暂存搜索结果，等AI回复后再发送
                 for (const result of toolResults) {
                     if (result.toolName === 'searchTool' && result.result && !result.error) {
                         let searchData;
@@ -1528,14 +1544,13 @@ export class SF_Painting extends plugin {
                             try {
                                 searchData = JSON.parse(result.result);
                             } catch (e) {
-                                // 不是 JSON 字符串，跳过转发
                                 continue;
                             }
                         } else {
                             searchData = result.result;
                         }
                         if (searchData && searchData.needForward !== false && searchData.results && searchData.results.length > 0) {
-                            await this.sendSearchReferences(e, searchData);
+                            pendingSearchResults.push(searchData);
                         }
                     }
                 }
@@ -1579,8 +1594,18 @@ export class SF_Painting extends plugin {
                 
                 // 如果已经执行过工具调用，这一轮是最终回复，使用 chatModel
                 if (hasExecutedTools) {
+                    // 先发送AI回复
+                    const aiReply = aiResponse.content;
+                    
+                    // 然后发送暂存的搜索结果（如果有）
+                    if (pendingSearchResults.length > 0) {
+                        for (const searchData of pendingSearchResults) {
+                            await this.sendSearchReferences(e, searchData);
+                        }
+                    }
+                    
                     return {
-                        content: aiResponse.content,
+                        content: aiReply,
                         imageBase64Array: null,
                         isError: false,
                         reasoning_content: aiResponse.reasoning_content,
@@ -1604,6 +1629,13 @@ export class SF_Painting extends plugin {
                 defaultModelName: selectedModelName,
                 temperature: 0.7
             });
+
+            // 发送暂存的搜索结果（如果有）
+            if (pendingSearchResults.length > 0) {
+                for (const searchData of pendingSearchResults) {
+                    await this.sendSearchReferences(e, searchData);
+                }
+            }
 
             return {
                 content: finalResponse.content || '工具调用次数过多，请稍后再试',
@@ -1659,6 +1691,37 @@ export class SF_Painting extends plugin {
             }
         } catch (error) {
             logger.error('[sf插件]发送搜索来源失败:', error);
+        }
+    }
+
+    /**
+     * @description: 发送表情回应（NapCat 等协议支持）
+     * @param {Object} e - 事件对象
+     * @param {string} emojiId - 表情ID
+     */
+    async sendEmojiReaction(e, emojiId) {
+        try {
+            // 获取消息ID
+            const messageId = e.message_id || e.seq;
+            if (!messageId) return;
+            
+            // 检查是否支持表情回应
+            if (e.group?.sendApi) {
+                // NapCat / OneBot 11 协议
+                await e.group.sendApi('set_msg_emoji_like', {
+                    message_id: messageId,
+                    emoji_id: String(emojiId)
+                });
+                logger.debug(`[sf插件]已发送表情回应: ${emojiId}`);
+            } else if (e.friend?.sendApi) {
+                await e.friend.sendApi('set_msg_emoji_like', {
+                    message_id: messageId,
+                    emoji_id: String(emojiId)
+                });
+                logger.debug(`[sf插件]已发送表情回应: ${emojiId}`);
+            }
+        } catch (error) {
+            logger.debug('[sf插件]发送表情回应失败:', error.message);
         }
     }
 
