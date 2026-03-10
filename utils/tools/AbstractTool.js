@@ -60,17 +60,32 @@ export class AbstractTool {
             }
 
             // 处理其他类型
-            if (schema.type && typeof value !== schema.type) {
-                // 自动类型转换
-                if (schema.type === 'string' && typeof value === 'number') {
-                    params[key] = String(value)
-                    continue
+            if (schema.type) {
+                // 特殊处理 integer 类型（JavaScript 中 number 包含整数和浮点数）
+                if (schema.type === 'integer') {
+                    if (typeof value === 'number') {
+                        // 确保是整数
+                        if (!Number.isInteger(value)) {
+                            return `参数 ${key} 必须是整数`
+                        }
+                    } else if (typeof value === 'string' && !isNaN(Number(value))) {
+                        // 字符串转整数
+                        params[key] = parseInt(value, 10)
+                    } else {
+                        return `参数 ${key} 类型错误，应为整数`
+                    }
+                } else if (typeof value !== schema.type) {
+                    // 自动类型转换
+                    if (schema.type === 'string' && typeof value === 'number') {
+                        params[key] = String(value)
+                        continue
+                    }
+                    if (schema.type === 'number' && typeof value === 'string' && !isNaN(Number(value))) {
+                        params[key] = Number(value)
+                        continue
+                    }
+                    return `参数 ${key} 类型错误，应为 ${schema.type}`
                 }
-                if (schema.type === 'number' && typeof value === 'string' && !isNaN(Number(value))) {
-                    params[key] = Number(value)
-                    continue
-                }
-                return `参数 ${key} 类型错误，应为 ${schema.type}`
             }
 
             if (schema.pattern && !new RegExp(schema.pattern).test(String(value))) {

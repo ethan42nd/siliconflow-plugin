@@ -1282,8 +1282,8 @@ export class SF_Painting extends plugin {
         
         // 调试日志（仅在开启 debugLog 时输出）
         if (toolsConfig?.debugLog) {
-            logger.info(`[sf插件][工具调用检查] enable: ${toolsConfig?.enable}, forChat: ${forChat}, groupId: ${groupId}, isGroupAllowed: ${isGroupAllowed}, toolsEnabled: ${toolsEnabled}`);
-            logger.info(`[sf插件][工具调用检查] groupList: ${JSON.stringify(toolsConfig?.groupList)}`);
+            logger.debug(`[sf插件][工具调用检查] enable: ${toolsConfig?.enable}, forChat: ${forChat}, groupId: ${groupId}, isGroupAllowed: ${isGroupAllowed}, toolsEnabled: ${toolsEnabled}`);
+            logger.debug(`[sf插件][工具调用检查] groupList: ${JSON.stringify(toolsConfig?.groupList)}`);
         }
 
         // 执行主要逻辑
@@ -1523,8 +1523,18 @@ export class SF_Painting extends plugin {
                 // 检查是否有搜索结果需要转发
                 for (const result of toolResults) {
                     if (result.toolName === 'searchTool' && result.result && !result.error) {
-                        const searchData = typeof result.result === 'string' ? JSON.parse(result.result) : result.result;
-                        if (searchData.needForward !== false && searchData.results && searchData.results.length > 0) {
+                        let searchData;
+                        if (typeof result.result === 'string') {
+                            try {
+                                searchData = JSON.parse(result.result);
+                            } catch (e) {
+                                // 不是 JSON 字符串，跳过转发
+                                continue;
+                            }
+                        } else {
+                            searchData = result.result;
+                        }
+                        if (searchData && searchData.needForward !== false && searchData.results && searchData.results.length > 0) {
                             await this.sendSearchReferences(e, searchData);
                         }
                     }
