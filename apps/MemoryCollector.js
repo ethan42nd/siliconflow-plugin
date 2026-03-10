@@ -289,7 +289,10 @@ function safeJsonParse(str, defaultValue = null) {
 }
 
 function getPrompt(memConf, isDeepSync = false) {
-  const presetKey = memConf.promptPreset || 'standard'
+  // 日常提炼使用 promptPreset，历史同步使用 syncPromptPreset（如果没有设置则使用 promptPreset）
+  const presetKey = isDeepSync 
+    ? (memConf.syncPromptPreset || memConf.promptPreset || 'standard')
+    : (memConf.promptPreset || 'standard')
   const preset = PROMPT_PRESETS[presetKey]
   
   if (isDeepSync) {

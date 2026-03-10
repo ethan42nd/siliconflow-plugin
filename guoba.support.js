@@ -2661,9 +2661,18 @@ export function supportGuoba() {
           }
         },
         {
+          field: "smartMode.memory.syncPromptPreset",
+          label: "历史同步提示词预设",
+          bottomHelpMessage: "选择适合的历史同步预设。历史同步用于 #同步历史记忆 指令，会深度分析用户多天记录生成完整画像。",
+          component: "Select",
+          componentProps: {
+            options: promptPresetOptions,
+          },
+        },
+        {
           field: "smartMode.memory.syncPrompt",
           label: "历史同步提示词（自定义）",
-          bottomHelpMessage: "指导大模型进行深度历史分析的提示词。选择上方预设会自动填充，也可手动编辑自定义。",
+          bottomHelpMessage: "指导大模型进行深度历史分析的提示词。选择上方【历史同步提示词预设】会自动填充，也可手动编辑自定义。",
           component: "InputTextArea",
           componentProps: {
             rows: 12,
