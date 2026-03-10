@@ -50,10 +50,18 @@ const PROMPT_PRESETS = {
 }
 
 category 可选值：basic(基本信息), interest(兴趣), personality(性格), habit(习惯), relationship(人际关系), skill(技能)
-注意：只输出JSON，不要解释；confidence范围0-1；不要编造信息。`,
+⚠️ 绝对规则：
+1. 只输出纯JSON，不要任何 Markdown 代码块标记（如 ```json）
+2. 不要任何解释说明文字
+3. confidence 范围 0-1
+4. 不要编造信息
+5. 确保输出是合法的 JSON 格式，可以被 JSON.parse() 直接解析`,
     syncPrompt: `你是一个顶级的心理侧写师。请根据用户的历史聊天记录，生成深度结构化档案。
 
-请严格按照以下JSON格式输出（不要包含任何其他内容）：
+⚠️ 绝对规则：
+1. 只输出纯JSON，不要任何 Markdown 代码块标记（如 ```json）
+2. 不要任何解释说明文字
+3. 确保输出是合法的 JSON 格式
 {
   "facts": [
     {"category": "basic|interest|personality|habit|relationship|skill", "key": "属性名", "value": "属性值", "confidence": 0.9}
@@ -259,8 +267,22 @@ function getTodayString() {
 }
 
 function safeJsonParse(str, defaultValue = null) {
+  if (!str || typeof str !== 'string') return defaultValue
+  
+  // 去除 Markdown 代码块标记
+  let cleaned = str.trim()
+  if (cleaned.startsWith('```json')) {
+    cleaned = cleaned.substring(7)
+  } else if (cleaned.startsWith('```')) {
+    cleaned = cleaned.substring(3)
+  }
+  if (cleaned.endsWith('```')) {
+    cleaned = cleaned.substring(0, cleaned.length - 3)
+  }
+  cleaned = cleaned.trim()
+  
   try {
-    return JSON.parse(str)
+    return JSON.parse(cleaned)
   } catch (e) {
     return defaultValue
   }
