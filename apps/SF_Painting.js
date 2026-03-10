@@ -1273,8 +1273,12 @@ export class SF_Painting extends plugin {
         const needRetryForImage = mustReturnImgRetriesTimes > 0;
 
         // 检查是否启用工具调用
-        const toolsEnabled = config_date.smartMode?.tools?.enable && forChat;
-        const maxToolRounds = config_date.smartMode?.tools?.maxToolRounds || 5;
+        const toolsConfig = config_date.smartMode?.tools;
+        const groupId = e.group_id || e.group?.id;
+        // 群聊白名单检查：groupList 为空表示所有群都允许，否则只在指定群中启用
+        const isGroupAllowed = !groupId || !toolsConfig?.groupList || toolsConfig.groupList.length === 0 || toolsConfig.groupList.includes(Number(groupId));
+        const toolsEnabled = toolsConfig?.enable && forChat && isGroupAllowed;
+        const maxToolRounds = toolsConfig?.maxToolRounds || 5;
 
         // 执行主要逻辑
         const executeRequest = async (toolMode = false, toolMessages = []) => {
