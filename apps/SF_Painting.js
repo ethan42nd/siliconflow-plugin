@@ -1109,7 +1109,7 @@ export class SF_Painting extends plugin {
         }
 
         logger.info(`[sf prompt]${'[图片]'.repeat(e.img?.length || 0)}${toAiMessage}`)
-        let { content: answer, imageBase64Array: generatedImageArray, isError, reasoning_content, sources } = await this.generatePrompt(toAiMessage, use_sf_key, config_date, true, apiBaseUrl, model, opt, historyMessages, e)
+        let { content: answer, imageBase64Array: generatedImageArray, isError, reasoning_content, sources, alreadyReplied } = await this.generatePrompt(toAiMessage, use_sf_key, config_date, true, apiBaseUrl, model, opt, historyMessages, e)
 
         if (e.sf_is_from_first_person_call)
             ChatCooldown.end(e.user_id, e.group_id)
@@ -1169,6 +1169,11 @@ export class SF_Painting extends plugin {
                 content: cleanedAnswer,
                 imageBase64: undefined
             }, (isMaster || e.sf_is_from_first_person_call) ? config_date.ss_usingAPI : e.sf_llm_user_API || await findIndexByRemark(e, "ss", config_date), 'ss')
+        }
+
+        // 如果已经回复过（工具调用模式），直接返回
+        if (alreadyReplied) {
+            return;
         }
 
         // 发送消息
@@ -1612,7 +1617,8 @@ export class SF_Painting extends plugin {
                         imageBase64Array: null,
                         isError: false,
                         reasoning_content: aiResponse.reasoning_content,
-                        sources: aiResponse.sources
+                        sources: aiResponse.sources,
+                        alreadyReplied: true  // 标记已经回复过，避免上层重复发送
                     };
                 }
                 
@@ -1651,7 +1657,8 @@ export class SF_Painting extends plugin {
                 imageBase64Array: null,
                 isError: false,
                 reasoning_content: finalResponse.reasoning_content,
-                sources: finalResponse.sources
+                sources: finalResponse.sources,
+                alreadyReplied: true
             };
         } catch (error) {
             const safeError = hidePrivacyInfo(error.message);
@@ -1659,7 +1666,8 @@ export class SF_Painting extends plugin {
             return {
                 content: '工具调用已完成，但生成最终回复失败',
                 imageBase64Array: null,
-                isError: false
+                isError: false,
+                alreadyReplied: true
             };
         }
     }
