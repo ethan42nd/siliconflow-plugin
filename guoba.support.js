@@ -2700,6 +2700,12 @@ export function supportGuoba() {
           }
         },
         {
+          field: "smartMode.tools.debugLog",
+          label: "工具调用详细日志",
+          bottomHelpMessage: "开启后会在控制台输出工具调用的详细信息（请求参数、返回结果等），仅用于调试。",
+          component: "Switch",
+        },
+        {
           field: "smartMode.tools.enabledTools",
           label: "启用的工具",
           bottomHelpMessage: "选择要启用的工具，推荐根据群聊实际需求选择。工具越多，AI判断开销越大。",

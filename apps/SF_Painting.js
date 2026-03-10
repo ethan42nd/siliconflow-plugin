@@ -1383,6 +1383,7 @@ export class SF_Painting extends plugin {
     async _generateWithTools(executeRequest, errorRetryTimes, maxToolRounds, e, config_date) {
         const tm = await getToolManager();
         const tools = tm.getToolInfos();
+        const debugLog = config_date.smartMode?.tools?.debugLog;
         
         if (!tools || tools.length === 0) {
             logger.debug('[sf插件][工具调用] 没有启用的工具，跳过工具模式');
@@ -1390,6 +1391,14 @@ export class SF_Painting extends plugin {
         }
 
         logger.info(`[sf插件][工具调用] 开始工具模式，最大轮数: ${maxToolRounds}，可用工具: ${tools.length}个`);
+        
+        if (debugLog) {
+            logger.mark('\n========== [工具调用] 可用工具列表 ==========');
+            tools.forEach((tool, i) => {
+                logger.mark(`${i + 1}. ${tool.function?.name}: ${tool.function?.description?.substring(0, 50)}...`);
+            });
+            logger.mark('===========================================\n');
+        }
 
         let toolMessages = [];
         let round = 0;
@@ -1426,9 +1435,27 @@ export class SF_Painting extends plugin {
             // 检查是否有工具调用
             if (lastResult.toolCalls && lastResult.toolCalls.length > 0) {
                 logger.info(`[sf插件][工具调用] 检测到 ${lastResult.toolCalls.length} 个工具调用`);
+                
+                if (debugLog) {
+                    logger.mark(`\n========== [工具调用] AI 返回的工具调用 ==========`);
+                    lastResult.toolCalls.forEach((tc, i) => {
+                        logger.mark(`${i + 1}. ${tc.function?.name}`);
+                        logger.mark(`   参数: ${tc.function?.arguments}`);
+                    });
+                    logger.mark(`================================================\n`);
+                }
 
                 // 执行工具调用
                 const toolResults = await tm.processToolCalls(lastResult.toolCalls, e);
+                
+                if (debugLog) {
+                    logger.mark(`\n========== [工具调用] 执行结果汇总 ==========`);
+                    toolResults.forEach((r, i) => {
+                        const status = r.error ? '❌ 失败' : '✅ 成功';
+                        logger.mark(`${i + 1}. ${r.toolName}: ${status}`);
+                    });
+                    logger.mark(`===========================================\n`);
+                }
                 
                 // 添加工具调用和结果到消息历史
                 toolMessages.push({

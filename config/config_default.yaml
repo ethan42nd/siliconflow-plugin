@@ -281,6 +281,7 @@ smartMode:
     enable: false               # 是否启用工具调用
     selectedModel: "默认-SF小模型"  # 工具调用模型
     groupList: []               # 工具生效群聊白名单
+    debugLog: false             # 是否输出工具调用详细日志（调试时使用）
     enabledTools:              # 启用的工具列表（空=全部启用）
       - pokeTool               # 戳一戳
       - likeTool               # 点赞

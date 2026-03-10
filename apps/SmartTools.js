@@ -64,6 +64,9 @@ export class SmartTools extends plugin {
             return []
         }
 
+        const config = Config.getConfig()
+        const debugLog = config.smartMode?.tools?.debugLog
+
         const results = []
 
         for (const toolCall of toolCalls) {
@@ -91,8 +94,22 @@ export class SmartTools extends plugin {
                 params.senderRole = e.sender.role
             }
 
+            // 详细日志输出
+            if (debugLog) {
+                logger.mark(`\n========== [工具调用] ${toolName} ==========`)
+                logger.mark(`调用ID: ${id}`)
+                logger.mark(`参数: ${JSON.stringify(params, null, 2)}`)
+            }
+
             try {
                 const result = await toolManager.executeTool(toolName, params, e)
+                
+                if (debugLog) {
+                    const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+                    logger.mark(`结果: ${resultStr.substring(0, 500)}${resultStr.length > 500 ? '...(已截断)' : ''}`)
+                    logger.mark(`====================================\n`)
+                }
+
                 results.push({
                     toolCallId: id,
                     toolName: toolName,
@@ -100,6 +117,10 @@ export class SmartTools extends plugin {
                 })
             } catch (error) {
                 logger.error(`[SmartTools] 执行工具 ${toolName} 失败:`, error)
+                if (debugLog) {
+                    logger.mark(`错误: ${error.message}`)
+                    logger.mark(`====================================\n`)
+                }
                 results.push({
                     toolCallId: id,
                     toolName: toolName,
