@@ -1542,21 +1542,37 @@ export class SF_Painting extends plugin {
                 
                 // 添加工具结果到消息历史
                 for (const result of toolResults) {
+                    // 格式化工具结果为自然语言，避免 AI 误解为需要继续调用工具
+                    let content;
+                    if (typeof result.result === 'string') {
+                        content = result.result;
+                    } else if (result.result && result.result.error) {
+                        content = `工具执行失败: ${result.result.error}`;
+                    } else {
+                        // 对于搜索结果等复杂结果，提取关键信息
+                        if (result.toolName === 'searchTool' && result.result) {
+                            const data = result.result;
+                            content = `搜索"${data.queries?.join('、') || data.query}"完成，共找到 ${data.result_count || data.results?.length || 0} 条结果。` +
+                                `前几条结果：${data.results?.slice(0, 3).map(r => `${r.title} (${r.link})`).join('；') || '无详细结果'}`;
+                        } else {
+                            content = JSON.stringify(result.result);
+                        }
+                    }
                     messages.push({
                         role: 'tool',
                         tool_call_id: result.toolCallId,
                         name: result.toolName,
-                        content: typeof result.result === 'string' ? result.result : JSON.stringify(result.result)
+                        content: content
                     });
                 }
 
-                // 添加系统提示，让 AI 继续回复（只在工具执行后添加）
-                if (round < maxToolRounds - 1) {
-                    messages.push({
-                        role: 'system',
-                        content: '工具调用已完成，请根据工具执行结果用自然语言回复用户。禁止输出任何代码格式如 print()、tool_name() 等，直接用人类语言回复。'
-                    });
-                }
+                // 添加系统提示，强制 AI 用自然语言回复
+                messages.push({
+                    role: 'system',
+                    content: '工具调用已完成，请根据工具执行结果直接用自然语言回复用户。' +
+                        '重要：不要输出任何 XML 标签（如 <｜DSML｜>）、代码格式、或类似 function_call 的内容。' +
+                        '直接像人类一样回答用户的问题，整合工具提供的信息给出流畅的回复。'
+                });
             } else {
                 // 没有工具调用，说明是最终回复
                 logger.info(`[sf插件][工具调用] 完成，共 ${round} 轮`);

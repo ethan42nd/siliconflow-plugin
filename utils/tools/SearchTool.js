@@ -99,23 +99,48 @@ export class SearchTool extends AbstractTool {
     }
 
     /**
-     * 执行搜索（支持多种搜索引擎）
+     * 执行搜索（支持多种搜索引擎，自动降级）
      */
     async performSearch(query, numResults, round = 0) {
         const config = Config.getConfig()
         const searchConfig = config.smartMode?.tools?.searchConfig || {}
         
-        // 根据轮数选择不同搜索引擎或添加随机延迟避免限制
+        // 根据轮数添加延迟避免限制
         if (round > 0) {
             await new Promise(resolve => setTimeout(resolve, 1000 * round))
         }
         
-        // 优先使用 SearXNG 实例，如果没有则使用 DuckDuckGo
+        // 优先使用 SearXNG 实例
         if (searchConfig.searxngUrl) {
-            return await this.searchSearxng(query, numResults, searchConfig.searxngUrl)
+            const results = await this.searchSearxng(query, numResults, searchConfig.searxngUrl)
+            if (results.length > 0) return results
         }
         
-        return await this.searchDuckDuckGo(query, numResults)
+        // 引擎优先级：DuckDuckGo -> Bing -> Google
+        const engines = ['duckduckgo', 'bing']
+        const startIndex = round % engines.length
+        
+        for (let i = 0; i < engines.length; i++) {
+            const engine = engines[(startIndex + i) % engines.length]
+            let results = []
+            
+            try {
+                if (engine === 'duckduckgo') {
+                    results = await this.searchDuckDuckGo(query, numResults)
+                } else if (engine === 'bing') {
+                    results = await this.searchBing(query, numResults)
+                }
+                
+                if (results.length > 0) {
+                    logger.debug(`[SearchTool] 使用 ${engine} 搜索成功，找到 ${results.length} 条结果`)
+                    return results
+                }
+            } catch (error) {
+                logger.warn(`[SearchTool] ${engine} 搜索失败:`, error.message)
+            }
+        }
+        
+        return []
     }
 
     /**
@@ -144,7 +169,7 @@ export class SearchTool extends AbstractTool {
     }
 
     /**
-     * 使用 DuckDuckGo 搜索（示例实现）
+     * 使用 DuckDuckGo 搜索
      */
     async searchDuckDuckGo(query, numResults) {
         try {
@@ -169,7 +194,10 @@ export class SearchTool extends AbstractTool {
             const titles = []
 
             while ((match = resultRegex.exec(html)) !== null && links.length < numResults) {
-                links.push(match[1])
+                const rawLink = match[1]
+                // 解析 DuckDuckGo 重定向链接获取真实 URL
+                const realLink = this.parseDuckDuckGoLink(rawLink)
+                links.push(realLink)
                 titles.push(this.decodeHtmlEntities(match[2]))
             }
 
@@ -191,6 +219,82 @@ export class SearchTool extends AbstractTool {
             console.error('DuckDuckGo 搜索失败:', error)
             return []
         }
+    }
+
+    /**
+     * 解析 DuckDuckGo 重定向链接获取真实 URL
+     */
+    parseDuckDuckGoLink(redirectUrl) {
+        try {
+            // DuckDuckGo 链接格式: //duckduckgo.com/l/?uddg=URL&rut=...
+            if (redirectUrl.includes('uddg=')) {
+                const uddgMatch = redirectUrl.match(/uddg=([^&]+)/)
+                if (uddgMatch) {
+                    return decodeURIComponent(uddgMatch[1])
+                }
+            }
+            return redirectUrl
+        } catch (e) {
+            return redirectUrl
+        }
+    }
+
+    /**
+     * 使用 Bing 搜索
+     */
+    async searchBing(query, numResults) {
+        try {
+            const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}&count=${numResults}`
+            const response = await axios.get(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+                },
+                timeout: 15000
+            })
+
+            const html = response.data
+            const results = []
+
+            // 解析 Bing 搜索结果
+            // Bing 结果在 .b_algo 容器中
+            const algoRegex = /<li class="b_algo"[^>]*>([\s\S]*?)<\/li>/g
+            let algoMatch
+            
+            while ((algoMatch = algoRegex.exec(html)) !== null && results.length < numResults) {
+                const algoHtml = algoMatch[1]
+                
+                // 提取标题和链接
+                const titleMatch = algoHtml.match(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/)
+                if (!titleMatch) continue
+                
+                const link = titleMatch[1]
+                const title = this.stripHtml(titleMatch[2]).trim()
+                
+                // 提取摘要
+                const snippetMatch = algoHtml.match(/<p[^>]*>([\s\S]*?)<\/p>/)
+                const snippet = snippetMatch ? this.stripHtml(snippetMatch[1]).trim() : ''
+                
+                results.push({
+                    title: title || '无标题',
+                    link: link,
+                    snippet: snippet
+                })
+            }
+
+            return results
+        } catch (error) {
+            logger.error('[SearchTool] Bing 搜索失败:', error.message)
+            return []
+        }
+    }
+
+    /**
+     * 去除 HTML 标签
+     */
+    stripHtml(html) {
+        return html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
     }
 
     decodeHtmlEntities(text) {
