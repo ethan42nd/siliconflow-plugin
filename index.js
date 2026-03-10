@@ -27,7 +27,14 @@ for (let i in files) {
     logger.error(ret[i].reason);
     continue;
   }
-  apps[name] = ret[i].value[Object.keys(ret[i].value)[0]];
+  
+  // 优先使用 default 导出，如果没有则使用第一个命名导出
+  const module = ret[i].value;
+  if (module.default) {
+    apps[name] = module.default;
+  } else {
+    apps[name] = module[Object.keys(module)[0]];
+  }
 }
 
 logger.info(logger.green("[sf插件] siliconflow-PLUGIN 载入成功"));
