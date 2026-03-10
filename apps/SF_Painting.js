@@ -50,6 +50,16 @@ async function getToolManager() {
     return toolManager;
 }
 
+// 导入模型路由器（延迟加载避免循环依赖）
+let modelRouter = null;
+async function getModelRouter() {
+    if (!modelRouter) {
+        const { modelRouter: mr } = await import('../utils/tools/ModelRouter.js');
+        modelRouter = mr;
+    }
+    return modelRouter;
+}
+
 // 导入记忆系统（延迟加载避免循环依赖）
 let memoryCollector = null;
 async function getMemoryCollector() {
@@ -1273,7 +1283,9 @@ export class SF_Painting extends plugin {
 
         // 如果启用了工具调用，先尝试工具模式
         if (toolsEnabled) {
-            return await this._generateWithTools(executeRequest, errorRetryTimes, maxToolRounds, e, config_date);
+            // 构建基础消息列表用于多模型路由
+            const baseMessages = this._buildBaseMessages(input, config_date, forChat, opt, historyMessages, e);
+            return await this._generateWithTools(executeRequest, errorRetryTimes, maxToolRounds, e, config_date, baseMessages);
         }
 
         // 错误重试逻辑
@@ -1372,16 +1384,18 @@ export class SF_Painting extends plugin {
     }
 
     /**
-     * @description: 带工具调用的生成
-     * @param {*} executeRequest 执行请求的函数
+     * @description: 带工具调用的生成（多模型路由版）
+     * @param {*} executeRequest 执行请求的函数（用于最终聊天回复）
      * @param {*} errorRetryTimes 错误重试次数
      * @param {*} maxToolRounds 最大工具调用轮数
      * @param {*} e 事件对象
      * @param {*} config_date 配置
+     * @param {*} baseMessages 基础消息列表（系统提示+历史对话+当前输入）
      * @return {Object} 返回 {content, imageBase64Array}
      */
-    async _generateWithTools(executeRequest, errorRetryTimes, maxToolRounds, e, config_date) {
+    async _generateWithTools(executeRequest, errorRetryTimes, maxToolRounds, e, config_date, baseMessages) {
         const tm = await getToolManager();
+        const mr = await getModelRouter();
         const tools = tm.getToolInfos();
         const debugLog = config_date.smartMode?.tools?.debugLog;
         
@@ -1400,15 +1414,24 @@ export class SF_Painting extends plugin {
             logger.mark('===========================================\n');
         }
 
-        let toolMessages = [];
+        // 获取当前使用的模型名称（用于默认回退）
+        const selectedModelName = config_date.smartMode?.selectedModel || '';
+
+        let messages = [...baseMessages]; // 从基础消息开始
         let round = 0;
+        let hasExecutedTools = false;
 
         while (round < maxToolRounds) {
             round++;
             logger.info(`[sf插件][工具调用] 第 ${round} 轮调用`);
 
-            let lastResult = null;
+            let aiResponse = null;
             let success = false;
+
+            // 确定本轮使用的模型用途
+            // 第一轮使用 toolCallModel 进行工具调用判断
+            // 后续轮次如果没有工具调用，使用 chatModel 进行最终回复
+            const purpose = (round === 1) ? 'toolCall' : (hasExecutedTools ? 'chat' : 'toolCall');
 
             // 错误重试
             for (let errorAttempt = 0; errorAttempt <= errorRetryTimes; errorAttempt++) {
@@ -1417,36 +1440,66 @@ export class SF_Painting extends plugin {
                     await new Promise(resolve => setTimeout(resolve, 1000 * errorAttempt));
                 }
 
-                lastResult = await executeRequest(true, toolMessages);
+                try {
+                    // 使用 ModelRouter 发送请求（第一轮带工具，后续轮次不带）
+                    const shouldUseTools = (round === 1 || !hasExecutedTools) && tools.length > 0;
+                    
+                    aiResponse = await mr.chat({
+                        messages,
+                        tools: shouldUseTools ? tools : undefined,
+                        purpose,
+                        defaultModelName: selectedModelName,
+                        temperature: 0.7
+                    });
 
-                if (!lastResult.isError) {
                     success = true;
                     break;
+                } catch (error) {
+                    const safeError = hidePrivacyInfo(error.message);
+                    logger.warn(`[sf插件][工具调用] API请求失败: ${safeError}`);
+                    
+                    if (errorAttempt >= errorRetryTimes) {
+                        return {
+                            content: `工具调用请求失败: ${safeError}`,
+                            imageBase64Array: null,
+                            isError: true
+                        };
+                    }
                 }
-
-                logger.warn(`[sf插件][工具调用] 检测到错误返回: ${lastResult.content}`);
             }
 
-            if (!success) {
+            if (!success || !aiResponse) {
                 logger.error(`[sf插件][工具调用] 第 ${round} 轮调用失败`);
-                return lastResult;
+                return {
+                    content: '工具调用请求失败，请稍后再试',
+                    imageBase64Array: null,
+                    isError: true
+                };
             }
 
             // 检查是否有工具调用
-            if (lastResult.toolCalls && lastResult.toolCalls.length > 0) {
-                logger.info(`[sf插件][工具调用] 检测到 ${lastResult.toolCalls.length} 个工具调用`);
+            if (aiResponse.toolCalls && aiResponse.toolCalls.length > 0) {
+                logger.info(`[sf插件][工具调用] 检测到 ${aiResponse.toolCalls.length} 个工具调用`);
+                hasExecutedTools = true;
                 
                 if (debugLog) {
                     logger.mark(`\n========== [工具调用] AI 返回的工具调用 ==========`);
-                    lastResult.toolCalls.forEach((tc, i) => {
+                    aiResponse.toolCalls.forEach((tc, i) => {
                         logger.mark(`${i + 1}. ${tc.function?.name}`);
                         logger.mark(`   参数: ${tc.function?.arguments}`);
                     });
                     logger.mark(`================================================\n`);
                 }
 
+                // 添加 AI 的思考和工具调用到消息历史
+                messages.push({
+                    role: 'assistant',
+                    content: aiResponse.content || '',
+                    tool_calls: aiResponse.toolCalls
+                });
+
                 // 执行工具调用
-                const toolResults = await tm.processToolCalls(lastResult.toolCalls, e);
+                const toolResults = await tm.processToolCalls(aiResponse.toolCalls, e);
                 
                 if (debugLog) {
                     logger.mark(`\n========== [工具调用] 执行结果汇总 ==========`);
@@ -1457,15 +1510,9 @@ export class SF_Painting extends plugin {
                     logger.mark(`===========================================\n`);
                 }
                 
-                // 添加工具调用和结果到消息历史
-                toolMessages.push({
-                    role: 'assistant',
-                    content: lastResult.content || '',
-                    tool_calls: lastResult.toolCalls
-                });
-
+                // 添加工具结果到消息历史
                 for (const result of toolResults) {
-                    toolMessages.push({
+                    messages.push({
                         role: 'tool',
                         tool_call_id: result.toolCallId,
                         name: result.toolName,
@@ -1473,31 +1520,98 @@ export class SF_Painting extends plugin {
                     });
                 }
 
-                // 添加系统提示，让 AI 继续回复
-                toolMessages.push({
-                    role: 'system',
-                    content: '工具调用已完成，请根据工具执行结果用自然语言回复用户。禁止输出任何代码格式如 print()、tool_name() 等，直接用人类语言回复。'
-                });
+                // 添加系统提示，让 AI 继续回复（只在工具执行后添加）
+                if (round < maxToolRounds - 1) {
+                    messages.push({
+                        role: 'system',
+                        content: '工具调用已完成，请根据工具执行结果用自然语言回复用户。禁止输出任何代码格式如 print()、tool_name() 等，直接用人类语言回复。'
+                    });
+                }
             } else {
-                // 没有工具调用，直接返回结果
+                // 没有工具调用，说明是最终回复
                 logger.info(`[sf插件][工具调用] 完成，共 ${round} 轮`);
-                return {
-                    content: lastResult.content,
-                    imageBase64Array: lastResult.imageBase64Array,
-                    isError: false,
-                    reasoning_content: lastResult.reasoning_content,
-                    sources: lastResult.sources
-                };
+                
+                // 如果已经执行过工具调用，这一轮是最终回复，使用 chatModel
+                if (hasExecutedTools) {
+                    return {
+                        content: aiResponse.content,
+                        imageBase64Array: null,
+                        isError: false,
+                        reasoning_content: aiResponse.reasoning_content,
+                        sources: aiResponse.sources
+                    };
+                }
+                
+                // 如果没有执行过工具调用（第一轮就没有工具调用），使用原有逻辑返回
+                return await executeRequest(false, []);
             }
         }
 
-        // 达到最大轮数
-        logger.warn(`[sf插件][工具调用] 达到最大轮数 ${maxToolRounds}，强制结束`);
-        return {
-            content: lastResult?.content || '工具调用次数过多，请稍后再试',
-            imageBase64Array: null,
-            isError: false
-        };
+        // 达到最大轮数，使用 chatModel 强制生成最终回复
+        logger.warn(`[sf插件][工具调用] 达到最大轮数 ${maxToolRounds}，强制生成最终回复`);
+        
+        try {
+            const finalResponse = await mr.chat({
+                messages,
+                tools: undefined, // 最终回复不带工具
+                purpose: 'chat',
+                defaultModelName: selectedModelName,
+                temperature: 0.7
+            });
+
+            return {
+                content: finalResponse.content || '工具调用次数过多，请稍后再试',
+                imageBase64Array: null,
+                isError: false,
+                reasoning_content: finalResponse.reasoning_content,
+                sources: finalResponse.sources
+            };
+        } catch (error) {
+            const safeError = hidePrivacyInfo(error.message);
+            logger.error(`[sf插件][工具调用] 最终回复生成失败: ${safeError}`);
+            return {
+                content: '工具调用已完成，但生成最终回复失败',
+                imageBase64Array: null,
+                isError: false
+            };
+        }
+    }
+
+    /**
+     * @description: 构建基础消息列表（用于多模型路由工具调用）
+     * @param {*} input 当前输入
+     * @param {*} config_date 配置
+     * @param {*} forChat 是否聊天调用
+     * @param {*} opt 可选参数
+     * @param {*} historyMessages 历史消息
+     * @param {*} e 事件对象
+     * @return {Array} 消息列表
+     */
+    _buildBaseMessages(input, config_date, forChat = false, opt = {}, historyMessages = [], e) {
+        // 获取用户名并替换prompt中的变量
+        const userName = e?.sender?.card || e?.sender?.nickname || "用户";
+        
+        const systemPrompt = (!forChat ? config_date.sf_textToPaint_Prompt : opt.systemPrompt)
+            .replace(/{{user_name}}/g, userName);
+
+        // 构建系统消息
+        const messages = [
+            {
+                role: "system",
+                content: systemPrompt
+            }
+        ];
+
+        // 统一使用 formatContextForOpenAI 函数处理历史对话和首次对话
+        const userMessages = formatContextForOpenAI(historyMessages, {
+            currentInput: historyMessages.length > 0 ? null : input,
+            currentImages: opt.currentImages,
+            historyImages: opt.historyImages
+        });
+
+        messages.push(...userMessages);
+        
+        return messages;
     }
 
     /**

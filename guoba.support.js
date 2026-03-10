@@ -7,9 +7,12 @@ const geminiModelsByFetch = Config.getConfig()?.geminiModelsByFetch
 
 // --- 【新增】获取智能模式的模型池，生成锅巴下拉菜单选项 ---
 const smartApiList = Config.getConfig()?.smart_APIList || [];
-const smartModelOptions = smartApiList.map(api => ({ label: api.remark, value: api.remark }));
-if (smartModelOptions.length === 0) {
-  smartModelOptions.push({ label: '请先在配置文件中添加接口', value: '' });
+const smartModelOptions = [
+  { label: '🤖 使用当前对话模型（默认）', value: '' },
+  ...smartApiList.map(api => ({ label: `🔧 ${api.remark}`, value: api.remark }))
+];
+if (smartModelOptions.length === 1) {
+  smartModelOptions.push({ label: '⚠️ 请先在智能接口池中添加接口', value: '' });
 }
 // ----------------------------------------------------
 
@@ -2679,15 +2682,6 @@ export function supportGuoba() {
           component: "Switch",
         },
         {
-          field: "smartMode.tools.selectedModel",
-          label: "工具调用模型",
-          bottomHelpMessage: "选择用于判断工具调用的AI模型。推荐使用支持Function Calling的模型（如 GPT-4、Qwen、DeepSeek）。",
-          component: "Select",
-          componentProps: {
-            options: smartModelOptions,
-          },
-        },
-        {
           field: 'smartMode.tools.groupList',
           label: '工具生效群聊',
           bottomHelpMessage: '仅在选中的群聊中启用工具调用。留空则在所有群生效。',
@@ -2704,6 +2698,71 @@ export function supportGuoba() {
           label: "工具调用详细日志",
           bottomHelpMessage: "开启后会在控制台输出工具调用的详细信息（请求参数、返回结果等），仅用于调试。",
           component: "Switch",
+        },
+        {
+          component: 'Divider',
+          label: '功能分类模型配置（可选）',
+          componentProps: {
+            orientation: 'left',
+            plain: true,
+          },
+        },
+        {
+          field: "smartMode.tools.models.toolCallModel",
+          label: "🛠️ 工具调用模型",
+          bottomHelpMessage: "用于判断是否需要调用工具的模型。必须支持 Function Calling（如 GPT-4、Qwen2.5、DeepSeek）。留空则使用当前对话模型。",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
+            placeholder: '使用当前对话模型',
+          },
+        },
+        {
+          field: "smartMode.tools.models.visionModel",
+          label: "👁️ 视觉理解模型",
+          bottomHelpMessage: "用于理解图片内容的模型。需要视觉能力（如 GPT-4V、Gemini Pro Vision、Qwen-VL）。留空则使用当前对话模型。",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
+            placeholder: '使用当前对话模型',
+          },
+        },
+        {
+          field: "smartMode.tools.models.drawingModel",
+          label: "🎨 AI绘图模型",
+          bottomHelpMessage: "用于生成图片的模型。需要文生图能力（如 DALL-E、Stable Diffusion、Midjourney）。留空则使用 SiliconFlow 画图配置。",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
+            placeholder: '使用 SF 画图配置',
+          },
+        },
+        {
+          field: "smartMode.tools.models.searchModel",
+          label: "🔍 搜索增强模型",
+          bottomHelpMessage: "用于处理搜索结果的模型。建议选择擅长长文本处理的模型。留空则使用当前对话模型。",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
+            placeholder: '使用当前对话模型',
+          },
+        },
+        {
+          field: "smartMode.tools.models.chatModel",
+          label: "💬 对话生成模型",
+          bottomHelpMessage: "用于生成最终回复的模型。这是用户看到的主要回复，建议选择对话流畅的模型。留空则使用当前对话模型。",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
+            placeholder: '使用当前对话模型',
+          },
+        },
+        {
+          component: 'Divider',
+          componentProps: {
+            orientation: 'left',
+            plain: true,
+          },
         },
         {
           field: "smartMode.tools.enabledTools",
