@@ -2845,7 +2845,7 @@ export function supportGuoba() {
         {
           field: "smartMode.tools.searchConfig.showThinkingTip",
           label: "显示搜索提示",
-          bottomHelpMessage: "搜索前是否发送提示消息（如"派蒙帮你去搜索一下哦"）。",
+          bottomHelpMessage: "搜索前是否发送提示消息（如'派蒙帮你去搜索一下哦'）。",
           component: "Switch",
         },
         {
@@ -2858,7 +2858,7 @@ export function supportGuoba() {
         {
           field: "smartMode.tools.searchConfig.useEmojiReaction",
           label: "使用表情回应",
-          bottomHelpMessage: "NapCat 等协议支持的表情回应功能。开启后搜索时会用表情回应原消息表示思考中。",
+          bottomHelpMessage: "NapCat等协议支持的表情回应功能。开启后搜索时会用表情回应原消息表示思考中。",
           component: "Switch",
         },
         {
