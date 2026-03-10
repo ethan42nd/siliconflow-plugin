@@ -48,12 +48,18 @@ export class DrawTool extends AbstractTool {
             // 获取配置
             const config = Config.getConfig()
             
+            // 调试日志
+            logger.debug(`[DrawTool] sf_keys 类型: ${typeof config.sf_keys}, 是否为数组: ${Array.isArray(config.sf_keys)}`)
+            logger.debug(`[DrawTool] sf_keys 内容: ${JSON.stringify(config.sf_keys)}`)
+            
             // 获取 API Key（支持 sf_keys 数组或 sfKey 单字符串）
             let apiKey = ''
             if (config.sf_keys && Array.isArray(config.sf_keys) && config.sf_keys.length > 0) {
                 apiKey = config.sf_keys[0]
+                logger.debug(`[DrawTool] 从 sf_keys[0] 获取: ${typeof apiKey}, ${JSON.stringify(apiKey).substring(0, 50)}`)
             } else if (config.sfKey) {
                 apiKey = config.sfKey
+                logger.debug(`[DrawTool] 从 sfKey 获取: ${typeof apiKey}`)
             }
             
             // 确保 apiKey 是字符串
@@ -64,8 +70,11 @@ export class DrawTool extends AbstractTool {
             const model = config.sf_model || 'stabilityai/stable-diffusion-xl-base-1.0'
 
             if (!apiKey || apiKey === 'undefined' || apiKey === '[object Object]') {
-                return '绘图功能未配置有效的 API Key，请在锅巴配置或 config.yaml 中设置 sf_keys'
+                logger.error('[DrawTool] API Key 无效:', apiKey)
+                return '绘图功能未配置有效的 API Key，请在锅巴配置或 config.yaml 中设置 sf_keys（格式：sk-xxxxx）'
             }
+            
+            logger.info(`[DrawTool] 使用模型: ${model}, API Key: ${apiKey.substring(0, 10)}...`)
 
             // 发送请求到 SiliconFlow
             const response = await axios.post(
