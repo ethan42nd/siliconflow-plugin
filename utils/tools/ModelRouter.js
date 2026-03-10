@@ -58,18 +58,21 @@ export class ModelRouter {
      */
     _getDefaultApiConfig(config, modelName) {
         // 优先使用SS配置（OpenAI兼容格式，更适合工具调用）
-        if (config.ss_api) {
+        if (config.ss_apiBaseUrl || config.ss_api) {
             return {
-                baseUrl: config.ss_api.replace(/\/$/, ''),
+                baseUrl: (config.ss_apiBaseUrl || config.ss_api).replace(/\/$/, ''),
                 apiKey: config.ss_Key,
                 model: config.ss_model || 'gpt-4o',
                 type: 'openai'
             }
         }
-        // 否则使用SF配置
+        // 否则使用SF配置（从 sf_keys 数组中获取第一个key）
+        const sfKey = Array.isArray(config.sf_keys) && config.sf_keys.length > 0 
+            ? config.sf_keys[0] 
+            : (config.sfKey || '')
         return {
             baseUrl: config.sfBaseUrl || 'https://api.siliconflow.cn',
-            apiKey: config.sfKey,
+            apiKey: sfKey,
             model: config.sf_model || 'deepseek-ai/DeepSeek-V3',
             type: 'openai'
         }
@@ -82,16 +85,16 @@ export class ModelRouter {
      * @return {Object} 标准化的API配置
      */
     _normalizeApiConfig(apiConfig, globalConfig) {
-        const baseUrl = apiConfig.api?.replace(/\/$/, '') || 'https://api.siliconflow.cn'
-        const apiKey = apiConfig.key
-        const model = apiConfig.model || globalConfig.sf_model || 'deepseek-ai/DeepSeek-V3'
+        const baseUrl = (apiConfig.baseUrl || apiConfig.api)?.replace(/\/$/, '') || 'https://api.siliconflow.cn'
+        const apiKey = apiConfig.apiKey || apiConfig.key
+        const model = apiConfig.modelId || apiConfig.model || globalConfig.sf_model || 'deepseek-ai/DeepSeek-V3'
         
         return {
             baseUrl,
             apiKey,
             model,
             type: 'openai', // 统一使用OpenAI格式
-            name: apiConfig.name,
+            name: apiConfig.remark || apiConfig.name,
             customRequestBody: apiConfig.customRequestBody || {}
         }
     }
