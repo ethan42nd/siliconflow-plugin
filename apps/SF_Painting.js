@@ -1520,6 +1520,16 @@ export class SF_Painting extends plugin {
                     logger.mark(`===========================================\n`);
                 }
                 
+                // 检查是否有搜索结果需要转发
+                for (const result of toolResults) {
+                    if (result.toolName === 'searchTool' && result.result && !result.error) {
+                        const searchData = typeof result.result === 'string' ? JSON.parse(result.result) : result.result;
+                        if (searchData.needForward !== false && searchData.results && searchData.results.length > 0) {
+                            await this.sendSearchReferences(e, searchData);
+                        }
+                    }
+                }
+                
                 // 添加工具结果到消息历史
                 for (const result of toolResults) {
                     messages.push({
@@ -1584,6 +1594,45 @@ export class SF_Painting extends plugin {
                 imageBase64Array: null,
                 isError: false
             };
+        }
+    }
+
+    /**
+     * @description: 发送搜索来源参考（转发消息形式）
+     * @param {Object} e - 事件对象
+     * @param {Object} searchData - 搜索结果数据
+     */
+    async sendSearchReferences(e, searchData) {
+        try {
+            if (!searchData.results || searchData.results.length === 0) return;
+            
+            // 构建转发消息内容
+            const forwardMsgs = [];
+            forwardMsgs.push(`🔍 搜索关键词：${searchData.queries?.join('；') || '未知'}`);
+            forwardMsgs.push(`📊 找到 ${searchData.result_count || searchData.results.length} 条相关结果：`);
+            
+            searchData.results.forEach((result, index) => {
+                const title = result.title || '无标题';
+                const link = result.link || '';
+                const snippet = result.snippet ? result.snippet.substring(0, 100) + (result.snippet.length > 100 ? '...' : '') : '';
+                
+                forwardMsgs.push(`${index + 1}. ${title}\n${snippet ? snippet + '\n' : ''}${link}`);
+            });
+            
+            // 发送转发消息
+            if (common?.makeForwardMsg) {
+                const forwardMsg = await common.makeForwardMsg(e, forwardMsgs, `${e.sender?.card || e.sender?.nickname || '搜索'} 的参考来源`);
+                await e.reply(forwardMsg);
+            } else if (e.group?.makeForwardMsg) {
+                const forwardMsg = await e.group.makeForwardMsg(forwardMsgs.map(msg => ({
+                    message: msg,
+                    nickname: Bot.nickname,
+                    user_id: Bot.uin
+                })));
+                await e.reply(forwardMsg);
+            }
+        } catch (error) {
+            logger.error('[sf插件]发送搜索来源失败:', error);
         }
     }
 

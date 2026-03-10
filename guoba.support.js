@@ -2797,6 +2797,52 @@ export function supportGuoba() {
           componentProps: { min: 1, max: 10, step: 1, defaultValue: 5 },
         },
         {
+          component: 'Divider',
+          label: '搜索工具配置',
+          componentProps: { orientation: 'left', plain: true },
+        },
+        {
+          field: "smartMode.tools.searchConfig.maxKeywords",
+          label: "最大关键词数",
+          bottomHelpMessage: "单次搜索最多使用几个关键词。多个关键词可获取更全面信息，但会增加 Token 消耗。推荐：3",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 5, step: 1, defaultValue: 3 },
+        },
+        {
+          field: "smartMode.tools.searchConfig.maxResults",
+          label: "每关键词结果数",
+          bottomHelpMessage: "每个关键词返回几条搜索结果。推荐：3",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 10, step: 1, defaultValue: 3 },
+        },
+        {
+          field: "smartMode.tools.searchConfig.maxTotalResults",
+          label: "总计最大结果数",
+          bottomHelpMessage: "单次搜索总计最多返回几条结果（去重后）。推荐：10",
+          component: "InputNumber",
+          componentProps: { min: 5, max: 20, step: 1, defaultValue: 10 },
+        },
+        {
+          field: "smartMode.tools.searchConfig.maxRounds",
+          label: "搜索轮数",
+          bottomHelpMessage: "进行几轮搜索（使用不同引擎或时间间隔）。增加轮数可提升全面性但耗时更长。推荐：1",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 3, step: 1, defaultValue: 1 },
+        },
+        {
+          field: "smartMode.tools.searchConfig.searxngUrl",
+          label: "SearXNG 地址",
+          bottomHelpMessage: "可选：自建 SearXNG 实例地址（如 https://searx.example.com），提供更稳定的搜索。留空使用 DuckDuckGo。",
+          component: "Input",
+          componentProps: { placeholder: 'https://searx.example.com' },
+        },
+        {
+          field: "smartMode.tools.searchConfig.forwardReference",
+          label: "转发搜索来源",
+          bottomHelpMessage: "开启后，搜索结果链接会以转发消息（合并消息）形式发送，避免刷屏且更美观。",
+          component: "Switch",
+        },
+        {
           label: '视频解析',
           component: 'SOFT_GROUP_BEGIN'
         },
