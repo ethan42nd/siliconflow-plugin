@@ -47,11 +47,24 @@ export class DrawTool extends AbstractTool {
         try {
             // 获取配置
             const config = Config.getConfig()
-            const apiKey = config.sf_keys?.[0]
+            
+            // 获取 API Key（支持 sf_keys 数组或 sfKey 单字符串）
+            let apiKey = ''
+            if (config.sf_keys && Array.isArray(config.sf_keys) && config.sf_keys.length > 0) {
+                apiKey = config.sf_keys[0]
+            } else if (config.sfKey) {
+                apiKey = config.sfKey
+            }
+            
+            // 确保 apiKey 是字符串
+            if (typeof apiKey !== 'string') {
+                apiKey = String(apiKey)
+            }
+            
             const model = config.sf_model || 'stabilityai/stable-diffusion-xl-base-1.0'
 
-            if (!apiKey) {
-                return '绘图功能未配置 API Key'
+            if (!apiKey || apiKey === 'undefined' || apiKey === '[object Object]') {
+                return '绘图功能未配置有效的 API Key，请在锅巴配置或 config.yaml 中设置 sf_keys'
             }
 
             // 发送请求到 SiliconFlow
