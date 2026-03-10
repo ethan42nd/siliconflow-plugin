@@ -1514,7 +1514,7 @@ export class SF_Painting extends plugin {
                 const hasSearchTool = aiResponse.toolCalls.some(tc => tc.function?.name === 'searchTool');
                 if (hasSearchTool) {
                     // 发送表情回应（如果启用）
-                    if (searchConfig.useEmojiReaction && e.message_id) {
+                    if (searchConfig.useEmojiReaction) {
                         await this.sendEmojiReaction(e, searchConfig.thinkingEmoji || '176');
                     }
                     // 发送文字提示（如果启用）
@@ -1701,24 +1701,23 @@ export class SF_Painting extends plugin {
      */
     async sendEmojiReaction(e, emojiId) {
         try {
-            // 获取消息ID
+            // 获取消息ID（优先使用 e.message_id，群聊中可能是 e.seq）
             const messageId = e.message_id || e.seq;
-            if (!messageId) return;
+            if (!messageId) {
+                logger.debug('[sf插件]无法获取消息ID，跳过表情回应');
+                return;
+            }
             
-            // 检查是否支持表情回应
-            if (e.group?.sendApi) {
+            // 检查是否支持表情回应 - 使用 bot.sendApi
+            if (e.bot?.sendApi) {
                 // NapCat / OneBot 11 协议
-                await e.group.sendApi('set_msg_emoji_like', {
+                await e.bot.sendApi('set_msg_emoji_like', {
                     message_id: messageId,
                     emoji_id: String(emojiId)
                 });
-                logger.debug(`[sf插件]已发送表情回应: ${emojiId}`);
-            } else if (e.friend?.sendApi) {
-                await e.friend.sendApi('set_msg_emoji_like', {
-                    message_id: messageId,
-                    emoji_id: String(emojiId)
-                });
-                logger.debug(`[sf插件]已发送表情回应: ${emojiId}`);
+                logger.info(`[sf插件]已发送表情回应: ${emojiId}`);
+            } else {
+                logger.debug('[sf插件]当前协议不支持表情回应');
             }
         } catch (error) {
             logger.debug('[sf插件]发送表情回应失败:', error.message);
