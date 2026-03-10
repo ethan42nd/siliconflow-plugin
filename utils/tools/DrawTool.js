@@ -2,8 +2,18 @@ import { AbstractTool } from './AbstractTool.js'
 import axios from 'axios'
 import Config from '../../components/Config.js'
 
+// 动态导入 ModelRouter 避免循环依赖
+let modelRouter = null
+async function getModelRouter() {
+    if (!modelRouter) {
+        const { modelRouter: mr } = await import('./ModelRouter.js')
+        modelRouter = mr
+    }
+    return modelRouter
+}
+
 /**
- * AI 绘图工具类 - 使用 SiliconFlow API
+ * AI 绘图工具类 - 支持多模型路由
  */
 export class DrawTool extends AbstractTool {
     constructor() {
@@ -45,72 +55,144 @@ export class DrawTool extends AbstractTool {
         }
 
         try {
-            // 获取配置
             const config = Config.getConfig()
+            const drawingModel = config.smartMode?.tools?.models?.drawingModel
             
-            // 调试日志
-            logger.debug(`[DrawTool] sf_keys 类型: ${typeof config.sf_keys}, 是否为数组: ${Array.isArray(config.sf_keys)}`)
-            logger.debug(`[DrawTool] sf_keys 内容: ${JSON.stringify(config.sf_keys)}`)
-            
-            // 获取 API Key（支持 sf_keys 数组或 sfKey 单字符串）
-            let apiKey = ''
-            if (config.sf_keys && Array.isArray(config.sf_keys) && config.sf_keys.length > 0) {
-                apiKey = config.sf_keys[0]
-                logger.debug(`[DrawTool] 从 sf_keys[0] 获取: ${typeof apiKey}, ${JSON.stringify(apiKey).substring(0, 50)}`)
-            } else if (config.sfKey) {
-                apiKey = config.sfKey
-                logger.debug(`[DrawTool] 从 sfKey 获取: ${typeof apiKey}`)
+            // 如果配置了专用绘图模型（如 Gemini），使用 ModelRouter
+            if (drawingModel) {
+                return await this.drawWithModelRouter(prompt, negative_prompt, width, height, e)
             }
             
-            // 确保 apiKey 是字符串
-            if (typeof apiKey !== 'string') {
-                apiKey = String(apiKey)
-            }
-            
-            const model = config.sf_model || 'stabilityai/stable-diffusion-xl-base-1.0'
+            // 否则使用 SiliconFlow 默认方式
+            return await this.drawWithSiliconFlow(prompt, negative_prompt, width, height, e)
+        } catch (error) {
+            logger.error('[DrawTool] 绘图失败:', error)
+            return `图片生成失败: ${error.response?.data?.message || error.message}`
+        }
+    }
 
-            if (!apiKey || apiKey === 'undefined' || apiKey === '[object Object]') {
-                logger.error('[DrawTool] API Key 无效:', apiKey)
-                return '绘图功能未配置有效的 API Key，请在锅巴配置或 config.yaml 中设置 sf_keys（格式：sk-xxxxx）'
-            }
-            
-            logger.info(`[DrawTool] 使用模型: ${model}, API Key: ${apiKey.substring(0, 10)}...`)
+    /**
+     * 使用 ModelRouter 调用配置的绘图模型
+     */
+    async drawWithModelRouter(prompt, negative_prompt, width, height, e) {
+        const mr = await getModelRouter()
+        const apiConfig = mr.getApiConfig('drawing', '')
+        
+        if (!apiConfig || !apiConfig.apiKey) {
+            logger.warn('[DrawTool] drawingModel 配置无效，回退到 SiliconFlow')
+            return await this.drawWithSiliconFlow(prompt, negative_prompt, width, height, e)
+        }
 
-            // 发送请求到 SiliconFlow
+        logger.info(`[DrawTool] 使用 ModelRouter 调用绘图模型: ${apiConfig.model}`)
+
+        // 构建画图提示词
+        const imagePrompt = negative_prompt 
+            ? `${prompt}\n\nNegative prompt: ${negative_prompt}`
+            : prompt
+
+        try {
+            // 调用支持图像生成的模型（如 Gemini）
             const response = await axios.post(
-                'https://api.siliconflow.cn/v1/images/generations',
+                `${apiConfig.baseUrl}/v1/chat/completions`,
                 {
-                    model: model,
-                    prompt: prompt,
-                    negative_prompt: negative_prompt,
-                    width: width,
-                    height: height,
-                    num_inference_steps: 20,
-                    guidance_scale: 7.5
+                    model: apiConfig.model,
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'text', text: `Generate an image: ${imagePrompt}` }
+                            ]
+                        }
+                    ],
+                    ...apiConfig.customRequestBody
                 },
                 {
                     headers: {
-                        'Authorization': `Bearer ${apiKey}`,
+                        'Authorization': `Bearer ${apiConfig.apiKey}`,
                         'Content-Type': 'application/json'
                     },
                     timeout: 120000
                 }
             )
 
-            if (response.data?.images?.[0]?.url) {
-                const imageUrl = response.data.images[0].url
-                await e.reply(segment.image(imageUrl))
-                return {
-                    status: 'success',
-                    prompt: prompt,
-                    image_url: imageUrl
+            // 尝试从响应中提取图片
+            const message = response.data?.choices?.[0]?.message
+            if (message?.content) {
+                // 检查是否返回了图片 URL 或 base64
+                const imageUrlMatch = message.content.match(/https?:\/\/[^\s]+\.(?:png|jpg|jpeg|gif|webp)/i)
+                if (imageUrlMatch) {
+                    await e.reply(segment.image(imageUrlMatch[0]))
+                    return {
+                        status: 'success',
+                        prompt: prompt,
+                        image_url: imageUrlMatch[0]
+                    }
                 }
-            } else {
-                return '图片生成失败：未返回图片链接'
             }
+            
+            return '图片生成失败：模型未返回图片'
         } catch (error) {
-            logger.error('[DrawTool] 绘图失败:', error)
-            return `图片生成失败: ${error.response?.data?.message || error.message}`
+            logger.error('[DrawTool] ModelRouter 绘图失败:', error.message)
+            // 失败时回退到 SiliconFlow
+            return await this.drawWithSiliconFlow(prompt, negative_prompt, width, height, e)
+        }
+    }
+
+    /**
+     * 使用 SiliconFlow 默认方式
+     */
+    async drawWithSiliconFlow(prompt, negative_prompt, width, height, e) {
+        const config = Config.getConfig()
+        
+        // 获取 API Key
+        let apiKey = ''
+        if (config.sf_keys && Array.isArray(config.sf_keys) && config.sf_keys.length > 0) {
+            apiKey = config.sf_keys[0]
+        } else if (config.sfKey) {
+            apiKey = config.sfKey
+        }
+        
+        if (typeof apiKey !== 'string') {
+            apiKey = String(apiKey)
+        }
+        
+        if (!apiKey || apiKey === 'undefined' || apiKey === '[object Object]') {
+            return '绘图功能未配置有效的 API Key'
+        }
+        
+        const model = config.sf_model || 'stabilityai/stable-diffusion-xl-base-1.0'
+        logger.info(`[DrawTool] 使用 SiliconFlow: ${model}`)
+
+        const response = await axios.post(
+            'https://api.siliconflow.cn/v1/images/generations',
+            {
+                model: model,
+                prompt: prompt,
+                negative_prompt: negative_prompt,
+                width: width,
+                height: height,
+                num_inference_steps: 20,
+                guidance_scale: 7.5
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 120000
+            }
+        )
+
+        if (response.data?.images?.[0]?.url) {
+            const imageUrl = response.data.images[0].url
+            await e.reply(segment.image(imageUrl))
+            return {
+                status: 'success',
+                prompt: prompt,
+                image_url: imageUrl
+            }
+        } else {
+            return '图片生成失败：未返回图片链接'
         }
     }
 }
