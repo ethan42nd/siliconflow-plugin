@@ -104,8 +104,9 @@ export class ImageSearchTool extends AbstractTool {
                     await e.reply(allImages[0])
                 } else {
                     // 构建转发消息
+                    const userId = Array.isArray(Bot.uin) ? Bot.uin[0] : Bot.uin
                     const list = allImages.map(img => ({
-                        user_id: Bot.uin,
+                        user_id: userId,
                         nickname: Bot.nickname,
                         message: img
                     }))
