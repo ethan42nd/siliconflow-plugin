@@ -73,7 +73,8 @@ export class MusicTool extends AbstractTool {
                 id: song.songid,
                 mid: song.songmid,
                 name: song.songname,
-                singer: song.singer.map(s => s.name).join('/')
+                singer: song.singer.map(s => s.name).join('/'),
+                albummid: song.albummid
             }
 
             // 发送音乐卡片
@@ -139,21 +140,37 @@ export class MusicTool extends AbstractTool {
         let musicMessage
 
         if (musicData.type === 'qq') {
-            // QQ 音乐卡片
+            // QQ 音乐卡片 - 使用 custom 格式以确保兼容性
+            const jumpUrl = `https://y.qq.com/n/yqq/song/${musicData.mid}.html`
+            const audioUrl = `http://c6.y.qq.com/rsc/fcgi-bin/fcg_pyq_play.fcg?songid=&songmid=${musicData.mid}&songtype=1&fromtag=50`
+            const imageUrl = `http://y.gtimg.cn/music/photo_new/T002R150x150M000${musicData.albummid || musicData.mid}.jpg`
+            
             musicMessage = {
                 type: 'music',
                 data: {
-                    type: 'qq',
-                    id: musicData.id
+                    type: 'custom',
+                    url: jumpUrl,
+                    audio: audioUrl,
+                    title: musicData.name,
+                    image: imageUrl,
+                    singer: musicData.singer
                 }
             }
         } else {
-            // 网易云音乐卡片
+            // 网易云音乐卡片 - 使用 custom 格式
+            const jumpUrl = `https://music.163.com/#/song?id=${musicData.id}`
+            const audioUrl = `http://music.163.com/song/media/outer/url?id=${musicData.id}.mp3`
+            const imageUrl = musicData.picUrl || `https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg`
+            
             musicMessage = {
                 type: 'music',
                 data: {
-                    type: '163',
-                    id: musicData.id
+                    type: 'custom',
+                    url: jumpUrl,
+                    audio: audioUrl,
+                    title: musicData.name,
+                    image: imageUrl,
+                    singer: musicData.singer
                 }
             }
         }
