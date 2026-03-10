@@ -1276,13 +1276,15 @@ export class SF_Painting extends plugin {
         const toolsConfig = config_date.smartMode?.tools;
         const groupId = e.group_id || e.group?.id;
         // 群聊白名单检查：groupList 为空表示所有群都允许，否则只在指定群中启用
-        const isGroupAllowed = !groupId || !toolsConfig?.groupList || toolsConfig.groupList.length === 0 || toolsConfig.groupList.includes(Number(groupId));
+        const isGroupAllowed = !groupId || !toolsConfig?.groupList || toolsConfig.groupList.length === 0 || toolsConfig.groupList.includes(String(groupId)) || toolsConfig.groupList.includes(Number(groupId));
         const toolsEnabled = toolsConfig?.enable && forChat && isGroupAllowed;
         const maxToolRounds = toolsConfig?.maxToolRounds || 5;
         
-        // 调试日志
-        logger.info(`[sf插件][工具调用检查] enable: ${toolsConfig?.enable}, forChat: ${forChat}, groupId: ${groupId}, isGroupAllowed: ${isGroupAllowed}, toolsEnabled: ${toolsEnabled}`);
-        logger.info(`[sf插件][工具调用检查] groupList: ${JSON.stringify(toolsConfig?.groupList)}`)
+        // 调试日志（仅在开启 debugLog 时输出）
+        if (toolsConfig?.debugLog) {
+            logger.info(`[sf插件][工具调用检查] enable: ${toolsConfig?.enable}, forChat: ${forChat}, groupId: ${groupId}, isGroupAllowed: ${isGroupAllowed}, toolsEnabled: ${toolsEnabled}`);
+            logger.info(`[sf插件][工具调用检查] groupList: ${JSON.stringify(toolsConfig?.groupList)}`);
+        }
 
         // 执行主要逻辑
         const executeRequest = async (toolMode = false, toolMessages = []) => {
