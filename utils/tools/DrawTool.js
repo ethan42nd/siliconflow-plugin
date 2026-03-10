@@ -23,16 +23,14 @@ export class DrawTool extends AbstractTool {
                     default: ''
                 },
                 width: {
-                    type: 'number',
-                    description: '图片宽度，默认 1024',
-                    default: 1024,
-                    enum: [512, 768, 1024]
+                    type: 'integer',
+                    description: '图片宽度，可选值：512、768、1024，默认 1024',
+                    default: 1024
                 },
                 height: {
-                    type: 'number',
-                    description: '图片高度，默认 1024',
-                    default: 1024,
-                    enum: [512, 768, 1024]
+                    type: 'integer',
+                    description: '图片高度，可选值：512、768、1024，默认 1024',
+                    default: 1024
                 }
             },
             required: ['prompt']
