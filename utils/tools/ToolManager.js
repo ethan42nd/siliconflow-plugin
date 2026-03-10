@@ -115,6 +115,85 @@ class ToolManager {
     getToolConfig() {
         return TOOL_CONFIG
     }
+
+    /**
+     * 处理 AI 返回的工具调用请求
+     * @param {Array} toolCalls - AI 返回的 tool_calls
+     * @param {Object} e - 事件对象
+     * @returns {Array} - 工具执行结果
+     */
+    async processToolCalls(toolCalls, e) {
+        if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) {
+            return []
+        }
+
+        const config = Config.getConfig()
+        const debugLog = config.smartMode?.tools?.debugLog
+
+        const results = []
+
+        for (const toolCall of toolCalls) {
+            const { id, type, function: funcData } = toolCall
+
+            if (type !== 'function') continue
+
+            const toolName = funcData.name
+            let params
+
+            try {
+                params = JSON.parse(funcData.arguments || '{}')
+            } catch (error) {
+                logger.error(`[ToolManager] 解析工具参数失败:`, error)
+                results.push({
+                    toolCallId: id,
+                    toolName: toolName,
+                    error: '参数解析失败'
+                })
+                continue
+            }
+
+            // 添加发送者角色信息（用于禁言工具）
+            if (toolName === 'muteTool' && e.sender?.role) {
+                params.senderRole = e.sender.role
+            }
+
+            // 详细日志输出
+            if (debugLog) {
+                logger.mark(`\n========== [工具调用] ${toolName} ==========`)
+                logger.mark(`调用ID: ${id}`)
+                logger.mark(`参数: ${JSON.stringify(params, null, 2)}`)
+            }
+
+            try {
+                const result = await this.executeTool(toolName, params, e)
+                
+                if (debugLog) {
+                    const resultStr = typeof result === 'string' ? result : JSON.stringify(result, null, 2)
+                    logger.mark(`结果: ${resultStr.substring(0, 500)}${resultStr.length > 500 ? '...(已截断)' : ''}`)
+                    logger.mark(`====================================\n`)
+                }
+
+                results.push({
+                    toolCallId: id,
+                    toolName: toolName,
+                    result: result
+                })
+            } catch (error) {
+                logger.error(`[ToolManager] 执行工具 ${toolName} 失败:`, error)
+                if (debugLog) {
+                    logger.mark(`错误: ${error.message}`)
+                    logger.mark(`====================================\n`)
+                }
+                results.push({
+                    toolCallId: id,
+                    toolName: toolName,
+                    error: error.message
+                })
+            }
+        }
+
+        return results
+    }
 }
 
 // 导出单例实例
