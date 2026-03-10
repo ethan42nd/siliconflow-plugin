@@ -320,3 +320,10 @@ smartMode:
       thinkingTipMsg: "派蒙帮你去搜索一下哦，稍等片刻~"  # 搜索提示语
       useEmojiReaction: false     # 是否使用表情回应（NapCat等协议支持）
       thinkingEmoji: "176"        # 思考中表情ID（NapCat: 176=搜索/思考表情，QQ标准表情）
+    
+    # ========== 图片搜索配置 ==========
+    imageSearchConfig:
+      defaultSource: "auto"       # 默认图片来源：bing、pixiv、auto（自动判断）
+      autoUsePixiv: true          # 是否自动使用 Pixiv 搜索二次元/动漫图片
+      pixivR18: false             # 是否允许 R18 内容（默认关闭）
+      pixivProxy: "i.pixiv.re"    # Pixiv 图片代理域名（用于国内访问）

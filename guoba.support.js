@@ -2869,6 +2869,37 @@ export function supportGuoba() {
           componentProps: { placeholder: '176' },
         },
         {
+          component: 'Divider',
+          label: '图片搜索配置',
+          componentProps: { orientation: 'left', plain: true },
+        },
+        {
+          field: "smartMode.tools.imageSearchConfig.defaultSource",
+          label: "默认图片来源",
+          bottomHelpMessage: "图片搜索的默认来源。auto=自动判断（含二次元/动漫词自动使用 Pixiv），bing=必应，pixiv=Pixiv。",
+          component: "Select",
+          componentProps: {
+            options: [
+              { label: "🔄 自动判断", value: "auto" },
+              { label: "🔍 必应", value: "bing" },
+              { label: "🎨 Pixiv", value: "pixiv" },
+            ]
+          },
+        },
+        {
+          field: "smartMode.tools.imageSearchConfig.pixivR18",
+          label: "允许 Pixiv R18",
+          bottomHelpMessage: "是否允许搜索 Pixiv R18 内容（需要群聊环境合适且符合法律法规）。默认关闭。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.imageSearchConfig.pixivProxy",
+          label: "Pixiv 图片代理",
+          bottomHelpMessage: "Pixiv 图片代理域名，用于国内访问。推荐：i.pixiv.re、pximg.nj1x.com、px2.rainchan.win",
+          component: "Input",
+          componentProps: { placeholder: 'i.pixiv.re' },
+        },
+        {
           label: '视频解析',
           component: 'SOFT_GROUP_BEGIN'
         },
