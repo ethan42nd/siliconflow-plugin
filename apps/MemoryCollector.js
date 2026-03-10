@@ -1253,6 +1253,9 @@ export class UserMemory extends plugin {
   }
 }
 
+// 默认导出主类（Yunzai 插件系统需要）
+export default UserMemory
+
 // 导出工具函数
 export {
   REDIS_KEYS,
