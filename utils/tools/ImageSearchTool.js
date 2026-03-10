@@ -76,6 +76,14 @@ export class ImageSearchTool extends AbstractTool {
                 return '抱歉，未搜索到相关图片，请换个关键词试试。'
             }
 
+            // 根据配置转换图片质量
+            const config = Config.getConfig()
+            const imageQuality = config.smartMode?.tools?.imageSearchConfig?.imageQuality || 'original'
+            if (imageQuality !== 'original') {
+                imageUrls = imageUrls.map(url => this.convertImageQuality(url, imageQuality))
+                logger.info(`[图片搜索] 已转换图片质量为: ${imageQuality}`)
+            }
+
             // 验证图片可访问性
             const validUrls = await this.validateImages(imageUrls, count)
 
@@ -283,5 +291,31 @@ export class ImageSearchTool extends AbstractTool {
             .filter(result => result.status === 'fulfilled' && result.value.isValid)
             .map(result => result.value.url)
             .slice(0, maxCount)
+    }
+
+    /**
+     * 转换图片质量
+     * @param {string} url - 原图 URL
+     * @param {string} quality - 质量级别: original, master, small
+     * @returns {string} 转换后的 URL
+     */
+    convertImageQuality(url, quality) {
+        if (quality === 'original' || !url) return url
+        
+        // Pixiv 图片质量转换
+        // img-original -> img-master/img-small
+        if (url.includes('img-original')) {
+            if (quality === 'master') {
+                // 转换为中等质量：_master1200.jpg
+                return url.replace('img-original', 'img-master').replace(/\.(jpg|png|gif)$/, '_master1200.jpg')
+            } else if (quality === 'small') {
+                // 转换为小图：_square1200.jpg
+                return url.replace('img-original', 'img-master').replace(/\.(jpg|png|gif)$/, '_square1200.jpg')
+            }
+        }
+        
+        // 对于其他来源的图片，尝试使用 URL 参数或保持原样
+        // Bing 等图片通常已经返回合适的尺寸
+        return url
     }
 }

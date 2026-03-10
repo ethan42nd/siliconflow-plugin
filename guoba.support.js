@@ -2909,6 +2909,19 @@ export function supportGuoba() {
           componentProps: { placeholder: 'i.pixiv.re' },
         },
         {
+          field: "smartMode.tools.imageSearchConfig.imageQuality",
+          label: "图片质量",
+          bottomHelpMessage: "选择发送图片的质量。原图=最高清但文件大速度慢，中等=推荐，小图=速度最快",
+          component: "Select",
+          componentProps: {
+            options: [
+              { label: "🖼️ 原图 (original)", value: "original" },
+              { label: "✨ 中等 (master)", value: "master" },
+              { label: "🚀 小图 (small)", value: "small" },
+            ]
+          },
+        },
+        {
           label: '视频解析',
           component: 'SOFT_GROUP_BEGIN'
         },
