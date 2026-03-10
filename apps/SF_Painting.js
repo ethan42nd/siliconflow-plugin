@@ -1596,6 +1596,9 @@ export class SF_Painting extends plugin {
                 if (hasExecutedTools) {
                     // 先发送AI回复
                     const aiReply = aiResponse.content;
+                    if (aiReply) {
+                        await e.reply(aiReply);
+                    }
                     
                     // 然后发送暂存的搜索结果（如果有）
                     if (pendingSearchResults.length > 0) {
@@ -1630,7 +1633,13 @@ export class SF_Painting extends plugin {
                 temperature: 0.7
             });
 
-            // 发送暂存的搜索结果（如果有）
+            // 先发送AI回复
+            const aiReply = finalResponse.content || '工具调用次数过多，请稍后再试';
+            if (aiReply) {
+                await e.reply(aiReply);
+            }
+
+            // 然后发送暂存的搜索结果（如果有）
             if (pendingSearchResults.length > 0) {
                 for (const searchData of pendingSearchResults) {
                     await this.sendSearchReferences(e, searchData);
@@ -1638,7 +1647,7 @@ export class SF_Painting extends plugin {
             }
 
             return {
-                content: finalResponse.content || '工具调用次数过多，请稍后再试',
+                content: aiReply,
                 imageBase64Array: null,
                 isError: false,
                 reasoning_content: finalResponse.reasoning_content,
