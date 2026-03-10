@@ -51,7 +51,7 @@ const PROMPT_PRESETS = {
 
 category 可选值：basic(基本信息), interest(兴趣), personality(性格), habit(习惯), relationship(人际关系), skill(技能)
 ⚠️ 绝对规则：
-1. 只输出纯JSON，不要任何 Markdown 代码块标记（如 ```json）
+1. 只输出纯JSON，不要任何 Markdown 代码块标记（如 \`\`\`json）
 2. 不要任何解释说明文字
 3. confidence 范围 0-1
 4. 不要编造信息
@@ -59,7 +59,7 @@ category 可选值：basic(基本信息), interest(兴趣), personality(性格),
     syncPrompt: `你是一个顶级的心理侧写师。请根据用户的历史聊天记录，生成深度结构化档案。
 
 ⚠️ 绝对规则：
-1. 只输出纯JSON，不要任何 Markdown 代码块标记（如 ```json）
+1. 只输出纯JSON，不要任何 Markdown 代码块标记（如 \`\`\`json）
 2. 不要任何解释说明文字
 3. 确保输出是合法的 JSON 格式
 {

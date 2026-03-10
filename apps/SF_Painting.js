@@ -1561,13 +1561,18 @@ export class SF_Painting extends plugin {
                 }
                 
                 // 添加工具结果到消息历史
+                let hasToolError = false;
+                const failedTools = [];
                 for (const result of toolResults) {
                     // 格式化工具结果为自然语言，避免 AI 误解为需要继续调用工具
                     let content;
-                    if (typeof result.result === 'string') {
+                    if (result.error || (result.result && result.result.error)) {
+                        hasToolError = true;
+                        failedTools.push(result.toolName);
+                        const errorMsg = typeof result.result === 'string' ? result.result : (result.result?.error || result.error || '未知错误');
+                        content = `工具执行失败: ${errorMsg}`;
+                    } else if (typeof result.result === 'string') {
                         content = result.result;
-                    } else if (result.result && result.result.error) {
-                        content = `工具执行失败: ${result.result.error}`;
                     } else {
                         // 对于搜索结果等复杂结果，提取关键信息
                         if (result.toolName === 'searchTool' && result.result) {
@@ -1587,11 +1592,21 @@ export class SF_Painting extends plugin {
                 }
 
                 // 添加系统提示，强制 AI 用自然语言回复
+                // 如果有工具失败，给 AI 更明确的指引
+                let systemPrompt = '工具调用已完成，请根据工具执行结果直接用自然语言回复用户。' +
+                    '重要：不要输出任何 XML 标签（如 <｜DSML｜>）、代码格式、或类似 function_call 的内容。' +
+                    '直接像人类一样回答用户的问题，整合工具提供的信息给出流畅的回复。';
+                
+                if (hasToolError) {
+                    systemPrompt += '\n\n【重要提示】部分工具执行失败：' + failedTools.join('、') + '。' +
+                        '请向用户说明失败原因（如：API密钥无效、服务不可用、参数错误等）。' +
+                        '同时，基于你的已有知识尽可能回答用户的问题，不要简单回复"工具执行失败"。' +
+                        '如果问题无法回答，请友好地解释原因，并建议用户稍后重试或检查配置。';
+                }
+                
                 messages.push({
                     role: 'system',
-                    content: '工具调用已完成，请根据工具执行结果直接用自然语言回复用户。' +
-                        '重要：不要输出任何 XML 标签（如 <｜DSML｜>）、代码格式、或类似 function_call 的内容。' +
-                        '直接像人类一样回答用户的问题，整合工具提供的信息给出流畅的回复。'
+                    content: systemPrompt
                 });
             } else {
                 // 没有工具调用，说明是最终回复
