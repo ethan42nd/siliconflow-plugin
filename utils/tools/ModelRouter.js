@@ -117,7 +117,9 @@ export class ModelRouter {
             throw new Error(`[ModelRouter] ${purpose} 用途的API配置无效`)
         }
 
-        const url = `${apiConfig.baseUrl}/v1/chat/completions`
+        // 处理 baseUrl，移除末尾的 /v1 以避免重复（因为后面会添加 /v1/chat/completions）
+        const normalizedBaseUrl = apiConfig.baseUrl.replace(/\/v1$/, '')
+        const url = `${normalizedBaseUrl}/v1/chat/completions`
         
         const requestBody = {
             model: apiConfig.model,
