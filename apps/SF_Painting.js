@@ -1279,6 +1279,10 @@ export class SF_Painting extends plugin {
         const isGroupAllowed = !groupId || !toolsConfig?.groupList || toolsConfig.groupList.length === 0 || toolsConfig.groupList.includes(Number(groupId));
         const toolsEnabled = toolsConfig?.enable && forChat && isGroupAllowed;
         const maxToolRounds = toolsConfig?.maxToolRounds || 5;
+        
+        // 调试日志
+        logger.info(`[sf插件][工具调用检查] enable: ${toolsConfig?.enable}, forChat: ${forChat}, groupId: ${groupId}, isGroupAllowed: ${isGroupAllowed}, toolsEnabled: ${toolsEnabled}`);
+        logger.info(`[sf插件][工具调用检查] groupList: ${JSON.stringify(toolsConfig?.groupList)}`)
 
         // 执行主要逻辑
         const executeRequest = async (toolMode = false, toolMessages = []) => {
