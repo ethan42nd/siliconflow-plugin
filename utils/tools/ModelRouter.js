@@ -174,6 +174,13 @@ export class ModelRouter {
                 logger.mark(`[ModelRouter] 响应完成，工具调用: ${toolCalls ? toolCalls.length : 0}个`)
                 if (message.content) {
                     logger.mark(`[ModelRouter] 回复长度: ${message.content.length}字符`)
+                    logger.mark(`[ModelRouter] 回复内容预览: ${message.content.substring(0, 200).replace(/\n/g, ' ')}...`)
+                } else {
+                    logger.mark(`[ModelRouter] 回复内容: (空)`)
+                }
+                if (message.reasoning_content || choice.reasoning_content) {
+                    const rc = message.reasoning_content || choice.reasoning_content
+                    logger.mark(`[ModelRouter] 推理内容长度: ${rc.length}字符`)
                 }
             }
 

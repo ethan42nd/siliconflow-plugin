@@ -1,6 +1,7 @@
 import { AbstractTool } from './AbstractTool.js'
 import axios from 'axios'
 import Config from '../../components/Config.js'
+import { hidePrivacyInfo } from '../common.js'
 
 // 动态导入 ModelRouter 避免循环依赖
 let modelRouter = null
@@ -90,30 +91,53 @@ export class DrawTool extends AbstractTool {
             ? `${prompt}\n\nNegative prompt: ${negative_prompt}`
             : prompt
 
-        try {
-            // 调用支持图像生成的模型（如 Gemini）
-            const response = await axios.post(
-                `${apiConfig.baseUrl}/v1/chat/completions`,
+        // 处理 baseUrl，移除末尾的 /v1 以避免重复（兼容中转服务）
+        const normalizedBaseUrl = apiConfig.baseUrl.replace(/\/$/, '').replace(/\/v1$/, '')
+        const url = `${normalizedBaseUrl}/v1/chat/completions`
+
+        const requestBody = {
+            model: apiConfig.model,
+            messages: [
                 {
-                    model: apiConfig.model,
-                    messages: [
-                        {
-                            role: 'user',
-                            content: [
-                                { type: 'text', text: `Generate an image: ${imagePrompt}` }
-                            ]
-                        }
-                    ],
-                    ...apiConfig.customRequestBody
-                },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${apiConfig.apiKey}`,
-                        'Content-Type': 'application/json'
-                    },
-                    timeout: 120000
+                    role: 'user',
+                    content: `Generate an image: ${imagePrompt}`
                 }
-            )
+            ],
+            ...apiConfig.customRequestBody
+        }
+
+        // 打印详细请求信息
+        const debugLog = Config.getConfig()?.smartMode?.tools?.debugLog
+        if (debugLog) {
+            logger.mark('\n========== [DrawTool] API 请求详情 ==========')
+            logger.mark(`[DrawTool] 请求 URL: ${hidePrivacyInfo(url)}`)
+            logger.mark(`[DrawTool] 请求方法: POST`)
+            logger.mark(`[DrawTool] 请求头:`)
+            logger.mark(`  Authorization: Bearer ${apiConfig.apiKey ? apiConfig.apiKey.substring(0, 10) + '***' : '未设置'}`)
+            logger.mark(`  Content-Type: application/json`)
+            logger.mark(`[DrawTool] 请求体:`)
+            logger.mark(JSON.stringify(requestBody, null, 2))
+            logger.mark('===========================================\n')
+        }
+
+        try {
+            const response = await axios.post(url, requestBody, {
+                headers: {
+                    'Authorization': `Bearer ${apiConfig.apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 120000
+            })
+
+            // 打印响应信息
+            if (debugLog) {
+                logger.mark('\n========== [DrawTool] API 响应详情 ==========')
+                logger.mark(`[DrawTool] 状态码: ${response.status}`)
+                logger.mark(`[DrawTool] 响应体:`)
+                const responseStr = JSON.stringify(response.data, null, 2)
+                logger.mark(responseStr.length > 3000 ? responseStr.substring(0, 3000) + '... (截断)' : responseStr)
+                logger.mark('===========================================\n')
+            }
 
             // 尝试从响应中提取图片
             const message = response.data?.choices?.[0]?.message
@@ -132,6 +156,19 @@ export class DrawTool extends AbstractTool {
             
             return '图片生成失败：模型未返回图片'
         } catch (error) {
+            // 打印详细错误信息
+            if (debugLog) {
+                logger.error('\n========== [DrawTool] API 错误详情 ==========')
+                logger.error(`[DrawTool] 错误消息: ${error.message}`)
+                if (error.response) {
+                    logger.error(`[DrawTool] 状态码: ${error.response.status}`)
+                    logger.error(`[DrawTool] 状态文本: ${error.response.statusText}`)
+                    logger.error(`[DrawTool] 响应数据:`)
+                    logger.error(JSON.stringify(error.response.data, null, 2))
+                }
+                logger.error('===========================================\n')
+            }
+            
             logger.error('[DrawTool] ModelRouter 绘图失败:', error.message)
             // 失败时回退到 SiliconFlow
             return await this.drawWithSiliconFlow(prompt, negative_prompt, width, height, e)

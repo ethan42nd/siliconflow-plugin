@@ -1591,23 +1591,42 @@ export class SF_Painting extends plugin {
                     });
                 }
 
-                // 添加系统提示，强制 AI 用自然语言回复
+                // 添加用户提示，强制 AI 用自然语言回复（使用 user 角色而非 system，避免某些模型不支持中间插入 system 消息）
                 // 如果有工具失败，给 AI 更明确的指引
-                let systemPrompt = '工具调用已完成，请根据工具执行结果直接用自然语言回复用户。' +
+                let followUpPrompt = '工具调用已完成，请根据工具执行结果直接用自然语言回复用户。' +
                     '重要：不要输出任何 XML 标签（如 <｜DSML｜>）、代码格式、或类似 function_call 的内容。' +
                     '直接像人类一样回答用户的问题，整合工具提供的信息给出流畅的回复。';
                 
                 if (hasToolError) {
-                    systemPrompt += '\n\n【重要提示】部分工具执行失败：' + failedTools.join('、') + '。' +
+                    followUpPrompt += '\n\n【重要提示】部分工具执行失败：' + failedTools.join('、') + '。' +
                         '请向用户说明失败原因（如：API密钥无效、服务不可用、参数错误等）。' +
                         '同时，基于你的已有知识尽可能回答用户的问题，不要简单回复"工具执行失败"。' +
                         '如果问题无法回答，请友好地解释原因，并建议用户稍后重试或检查配置。';
                 }
                 
+                // 使用 user 角色而不是 system，因为某些中转服务/模型不支持在对话中间插入 system 消息
                 messages.push({
-                    role: 'system',
-                    content: systemPrompt
+                    role: 'user',
+                    content: followUpPrompt
                 });
+                
+                // 调试日志：打印消息历史
+                if (debugLog) {
+                    logger.mark(`\n========== [工具调用] 第 ${round} 轮消息历史 ==========`);
+                    messages.forEach((msg, i) => {
+                        const contentPreview = typeof msg.content === 'string' 
+                            ? msg.content.substring(0, 100).replace(/\n/g, ' ') 
+                            : '(非字符串内容)';
+                        logger.mark(`[${i}] ${msg.role}: ${contentPreview}${msg.content?.length > 100 ? '...' : ''}`);
+                        if (msg.tool_calls) {
+                            logger.mark(`    tool_calls: ${msg.tool_calls.length}个`);
+                        }
+                        if (msg.tool_call_id) {
+                            logger.mark(`    tool_call_id: ${msg.tool_call_id}`);
+                        }
+                    });
+                    logger.mark(`===========================================\n`);
+                }
             } else {
                 // 没有工具调用，说明是最终回复
                 logger.info(`[sf插件][工具调用] 完成，共 ${round} 轮`);
@@ -1615,9 +1634,27 @@ export class SF_Painting extends plugin {
                 // 如果已经执行过工具调用，这一轮是最终回复，使用 chatModel
                 if (hasExecutedTools) {
                     // 先发送AI回复
-                    const aiReply = aiResponse.content;
+                    const aiReply = aiResponse.content?.trim();
+                    
+                    // 调试日志：打印 aiResponse 内容
+                    if (debugLog) {
+                        logger.mark(`\n========== [工具调用] 最终回复内容 ==========`);
+                        logger.mark(`[工具调用] content: ${aiReply ? aiReply.substring(0, 500) : '(空)'}`);
+                        logger.mark(`[工具调用] reasoning_content: ${aiResponse.reasoning_content ? '(有)' : '(无)'}`);
+                        logger.mark(`[工具调用] sources: ${aiResponse.sources ? '(有)' : '(无)'}`);
+                        logger.mark(`===========================================\n`);
+                    }
+                    
                     if (aiReply) {
                         await e.reply(aiReply);
+                    } else {
+                        logger.warn('[sf插件][工具调用] AI 返回的内容为空，尝试使用默认回复');
+                        // 如果 content 为空，但有推理内容，可以尝试发送推理内容
+                        if (aiResponse.reasoning_content) {
+                            await e.reply(aiResponse.reasoning_content);
+                        } else {
+                            await e.reply('抱歉，我处理工具调用结果时出现了问题，请稍后再试。');
+                        }
                     }
                     
                     // 然后发送暂存的搜索结果（如果有）
