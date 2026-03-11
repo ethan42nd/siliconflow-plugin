@@ -2,6 +2,7 @@ import { AbstractTool } from './AbstractTool.js'
 import axios from 'axios'
 import Config from '../../components/Config.js'
 import { hidePrivacyInfo } from '../common.js'
+import { url2Base64 } from '../getImg.js'
 import { HttpsProxyAgent } from 'https-proxy-agent'
 
 // 动态导入 ModelRouter 避免循环依赖
@@ -96,12 +97,42 @@ export class DrawTool extends AbstractTool {
         const normalizedBaseUrl = apiConfig.baseUrl.replace(/\/$/, '').replace(/\/v1$/, '')
         const url = `${normalizedBaseUrl}/v1/chat/completions`
 
+        // 检查是否有引用图片（用于图生图）
+        let messageContent = `Generate an image: ${imagePrompt}`
+        let hasReferenceImage = false
+        
+        if (e.img && e.img.length > 0) {
+            try {
+                // 获取第一张引用图片的 base64
+                const imageBase64 = await url2Base64(e.img[0])
+                if (imageBase64) {
+                    // 构建多模态消息内容
+                    messageContent = [
+                        {
+                            type: 'text',
+                            text: `Generate an image based on the reference image: ${imagePrompt}`
+                        },
+                        {
+                            type: 'image_url',
+                            image_url: {
+                                url: `data:image/jpeg;base64,${imageBase64}`
+                            }
+                        }
+                    ]
+                    hasReferenceImage = true
+                    logger.info(`[DrawTool] 检测到引用图片，使用图生图模式`)
+                }
+            } catch (error) {
+                logger.warn(`[DrawTool] 获取引用图片失败: ${error.message}，将使用文生图模式`)
+            }
+        }
+
         const requestBody = {
             model: apiConfig.model,
             messages: [
                 {
                     role: 'user',
-                    content: `Generate an image: ${imagePrompt}`
+                    content: messageContent
                 }
             ],
             ...apiConfig.customRequestBody
@@ -113,6 +144,7 @@ export class DrawTool extends AbstractTool {
             logger.mark('\n========== [DrawTool] API 请求详情 ==========')
             logger.mark(`[DrawTool] 请求 URL: ${hidePrivacyInfo(url)}`)
             logger.mark(`[DrawTool] 请求方法: POST`)
+            logger.mark(`[DrawTool] 模式: ${hasReferenceImage ? '图生图（含引用图片）' : '文生图'}`)
             logger.mark(`[DrawTool] 请求头:`)
             logger.mark(`  Authorization: Bearer ${apiConfig.apiKey ? apiConfig.apiKey.substring(0, 10) + '***' : '未设置'}`)
             logger.mark(`  Content-Type: application/json`)
@@ -120,7 +152,14 @@ export class DrawTool extends AbstractTool {
                 logger.mark(`[DrawTool] 使用代理: ${hidePrivacyInfo(apiConfig.proxyUrl)}`)
             }
             logger.mark(`[DrawTool] 请求体:`)
-            logger.mark(JSON.stringify(requestBody, null, 2))
+            // 如果有图片，截断 base64 数据以避免日志过长
+            const logRequestBody = hasReferenceImage 
+                ? JSON.parse(JSON.stringify(requestBody))
+                : requestBody
+            if (hasReferenceImage && logRequestBody.messages[0].content[1]?.image_url?.url) {
+                logRequestBody.messages[0].content[1].image_url.url = '[base64 image data...]'
+            }
+            logger.mark(JSON.stringify(logRequestBody, null, 2))
             logger.mark('===========================================\n')
         }
 
