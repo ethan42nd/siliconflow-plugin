@@ -1,6 +1,7 @@
 import Config from '../../components/Config.js'
 import axios from 'axios'
 import { hidePrivacyInfo } from '../common.js'
+import { HttpsProxyAgent } from 'https-proxy-agent'
 
 /**
  * @description: 多模型API路由器
@@ -89,13 +90,19 @@ export class ModelRouter {
         const apiKey = apiConfig.apiKey || apiConfig.key
         const model = apiConfig.modelId || apiConfig.model || globalConfig.sf_model || 'deepseek-ai/DeepSeek-V3'
         
+        // 获取代理配置
+        const proxyUrl = globalConfig.smartMode?.proxy?.url
+        const useProxy = apiConfig.useProxy && proxyUrl
+        
         return {
             baseUrl,
             apiKey,
             model,
             type: 'openai', // 统一使用OpenAI格式
             name: apiConfig.remark || apiConfig.name,
-            customRequestBody: apiConfig.customRequestBody || {}
+            customRequestBody: apiConfig.customRequestBody || {},
+            useProxy,
+            proxyUrl
         }
     }
 
@@ -138,16 +145,31 @@ export class ModelRouter {
             logger.mark(`\n[ModelRouter] 请求模型: ${apiConfig.model} (${purpose})`)
             logger.mark(`[ModelRouter] API: ${hidePrivacyInfo(apiConfig.baseUrl)}`)
             logger.mark(`[ModelRouter] 工具数量: ${tools?.length || 0}`)
+            if (apiConfig.useProxy) {
+                logger.mark(`[ModelRouter] 使用代理: ${hidePrivacyInfo(apiConfig.proxyUrl)}`)
+            }
         }
 
         try {
-            const response = await axios.post(url, requestBody, {
+            // 构建请求配置
+            const requestConfig = {
                 headers: {
                     'Authorization': `Bearer ${apiConfig.apiKey}`,
                     'Content-Type': 'application/json'
                 },
                 timeout: 120000
-            })
+            }
+            
+            // 如果启用代理，添加代理配置
+            if (apiConfig.useProxy) {
+                try {
+                    requestConfig.httpsAgent = new HttpsProxyAgent(apiConfig.proxyUrl)
+                } catch (proxyError) {
+                    logger.warn(`[ModelRouter] 代理配置失败: ${proxyError.message}，将尝试不使用代理`)
+                }
+            }
+            
+            const response = await axios.post(url, requestBody, requestConfig)
 
             const data = response.data
             if (!data.choices || data.choices.length === 0) {

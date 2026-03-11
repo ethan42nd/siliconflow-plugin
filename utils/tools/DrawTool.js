@@ -2,6 +2,7 @@ import { AbstractTool } from './AbstractTool.js'
 import axios from 'axios'
 import Config from '../../components/Config.js'
 import { hidePrivacyInfo } from '../common.js'
+import { HttpsProxyAgent } from 'https-proxy-agent'
 
 // 动态导入 ModelRouter 避免循环依赖
 let modelRouter = null
@@ -115,19 +116,34 @@ export class DrawTool extends AbstractTool {
             logger.mark(`[DrawTool] 请求头:`)
             logger.mark(`  Authorization: Bearer ${apiConfig.apiKey ? apiConfig.apiKey.substring(0, 10) + '***' : '未设置'}`)
             logger.mark(`  Content-Type: application/json`)
+            if (apiConfig.useProxy) {
+                logger.mark(`[DrawTool] 使用代理: ${hidePrivacyInfo(apiConfig.proxyUrl)}`)
+            }
             logger.mark(`[DrawTool] 请求体:`)
             logger.mark(JSON.stringify(requestBody, null, 2))
             logger.mark('===========================================\n')
         }
 
         try {
-            const response = await axios.post(url, requestBody, {
+            // 构建请求配置
+            const requestConfig = {
                 headers: {
                     'Authorization': `Bearer ${apiConfig.apiKey}`,
                     'Content-Type': 'application/json'
                 },
                 timeout: 120000
-            })
+            }
+            
+            // 如果启用代理，添加代理配置
+            if (apiConfig.useProxy) {
+                try {
+                    requestConfig.httpsAgent = new HttpsProxyAgent(apiConfig.proxyUrl)
+                } catch (proxyError) {
+                    logger.warn(`[DrawTool] 代理配置失败: ${proxyError.message}，将尝试不使用代理`)
+                }
+            }
+            
+            const response = await axios.post(url, requestBody, requestConfig)
 
             // 打印响应信息
             if (debugLog) {

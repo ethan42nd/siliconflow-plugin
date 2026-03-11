@@ -155,13 +155,19 @@ smart_APIList:
     baseUrl: "https://api.siliconflow.cn/v1"
     apiKey: "" # 留空将自动从全局 sf_keys 抽取
     modelId: "Qwen/Qwen2.5-7B-Instruct"
+    useProxy: false             # 是否使用代理访问此接口
   - remark: "备用-Gemini"
     format: "Gemini"
     baseUrl: "https://generativelanguage.googleapis.com"
     apiKey: "你的Gemini密钥"
     modelId: "gemini-2.5-flash"
+    useProxy: true              # 是否使用代理访问此接口
 
 smartMode:
+  # 代理服务器配置（用于访问被限制的 AI 接口）
+  proxy:
+    url: "socks5://127.0.0.1:7890"  # HTTP 或 SOCKS5 代理地址，留空则不使用代理
+  
   memory:
     # ========== 基础开关 ==========
     enable: false               # 是否启用记忆功能

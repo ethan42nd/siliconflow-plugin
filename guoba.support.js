@@ -2422,6 +2422,15 @@ export function supportGuoba() {
           componentProps: { orientation: "left", plain: true },
         },
         {
+          field: "smartMode.proxy.url",
+          label: "代理服务器",
+          bottomHelpMessage: "配置 HTTP 或 SOCKS5 代理服务器，用于访问被限制的 AI 接口。留空则不使用代理。",
+          component: "Input",
+          componentProps: {
+            placeholder: 'socks5://127.0.0.1:7890',
+          },
+        },
+        {
           field: "smart_APIList",
           label: "接口列表",
           bottomHelpMessage: "在这里新增或管理你的 AI 接口。⚠️ 新增并【保存】后，请【刷新当前网页】，即可在下方的下拉菜单中选用新接口。",
@@ -2467,6 +2476,12 @@ export function supportGuoba() {
                 componentProps: {
                   placeholder: '例如: Qwen/Qwen2.5-7B-Instruct',
                 },
+              },
+              {
+                field: "useProxy",
+                label: "启用代理",
+                component: "Switch",
+                bottomHelpMessage: "是否使用上方配置的代理服务器访问此接口。默认关闭。",
               }
             ]
           }

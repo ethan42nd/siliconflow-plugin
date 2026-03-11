@@ -10,6 +10,7 @@
   "module": "index.js",
   "dependencies": {
     "axios": "^1.6.2",
+    "https-proxy-agent": "^7.0.4",
     "ws": "^8.18.0"
   },
   "keywords": [
