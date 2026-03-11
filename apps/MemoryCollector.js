@@ -252,7 +252,7 @@ const logTruncate = (str, maxLen = 100) => {
 }
 
 function calculateSimilarity(str1, str2) {
-  if (!str1 || !str2) return 0
+  if (typeof str1 !== 'string' || typeof str2 !== 'string') return 0
   if (str1 === str2) return 1
   const set1 = new Set(str1.toLowerCase().split(''))
   const set2 = new Set(str2.toLowerCase().split(''))
