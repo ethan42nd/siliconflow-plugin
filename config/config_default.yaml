@@ -157,6 +157,7 @@ emojiReaction:
   reactToAllEmojis: true  # 同表情模式下，是否回应消息中的所有表情（false=仅回应第一个）
   cooldown: 5             # 冷却时间（秒），防止频繁回应
   onlyGroups: []          # 仅在这些群生效（留空则全局生效）
+  globalEnabled: false    # 全局默认开启（对未设置的用户生效）
 
 # 智能模式专属后台接口池
 smart_APIList:

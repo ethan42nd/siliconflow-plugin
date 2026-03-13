@@ -24,6 +24,11 @@ export class EmojiReaction extends plugin {
                     permission: 'master'
                 },
                 {
+                    reg: '^#(开启|关闭)全局表情回应$',
+                    fnc: 'toggleGlobalEmojiReaction',
+                    permission: 'master'
+                },
+                {
                     reg: '^#(开启|关闭)我的表情回应$',
                     fnc: 'toggleUserEmojiReaction'
                 },
@@ -65,13 +70,17 @@ export class EmojiReaction extends plugin {
     /**
      * 获取用户表情回应设置
      * @param {string} userId - 用户QQ号
+     * @param {boolean} globalDefault - 全局默认设置
      * @returns {Promise<boolean>} - 是否开启
      */
-    async getUserEmojiReactionEnabled(userId) {
+    async getUserEmojiReactionEnabled(userId, globalDefault = false) {
         const userKey = `Yz:emojiReaction:user:${userId}:enabled`
         const value = await redis.get(userKey)
-        // 默认关闭（未设置时返回 false）
-        return value === 'true'
+        // 如果用户有设置，使用用户设置
+        if (value === 'true') return true
+        if (value === 'false') return false
+        // 未设置时，使用全局默认
+        return globalDefault
     }
 
     /**
@@ -279,6 +288,33 @@ export class EmojiReaction extends plugin {
     }
 
     /**
+     * 开启/关闭全局表情回应（主人命令）
+     */
+    async toggleGlobalEmojiReaction(e) {
+        const action = e.msg.match(/^#(开启|关闭)全局表情回应$/)[1]
+        const enable = action === '开启'
+
+        try {
+            let config = Config.getConfig()
+            if (!config.emojiReaction) {
+                config.emojiReaction = {}
+            }
+            config.emojiReaction.globalEnabled = enable
+            Config.setConfig(config)
+
+            const msg = enable 
+                ? '✅ 已开启全局表情回应~\n未设置的用户将默认开启表情回应\n用户仍可通过 #关闭我的表情回应 单独关闭'
+                : '❌ 已关闭全局表情回应~\n未设置的用户将默认关闭表情回应\n用户仍可通过 #开启我的表情回应 单独开启'
+            await e.reply(msg, true)
+        } catch (error) {
+            logger.error('[表情回应] 切换全局设置失败:', error)
+            await e.reply('设置失败，请检查控制台日志', true)
+        }
+
+        return true
+    }
+
+    /**
      * 设置表情回应参数
      */
     async setEmojiReaction(e) {
@@ -357,8 +393,18 @@ export class EmojiReaction extends plugin {
             return true
         }
 
+        // #表情回应设置全局开启 / #表情回应设置全局关闭
+        if (msg.includes('全局开启') || msg.includes('全局关闭')) {
+            const enableGlobal = msg.includes('全局开启')
+            config.emojiReaction.globalEnabled = enableGlobal
+            Config.setConfig(config)
+            await e.reply(`已${enableGlobal ? '开启' : '关闭'}全局表情回应~\n${enableGlobal ? '未设置的用户将默认开启表情回应' : '未设置的用户将默认关闭表情回应'}`, true)
+            return true
+        }
+
         // 显示帮助
-        await e.reply([
+        const isMaster = e.isMaster
+        const helpMsg = [
             '表情回应设置帮助：',
             '#表情回应设置表情 [表情ID] - 设置固定回应表情',
             '#表情回应设置同表情 - 使用用户发送的相同表情回应',
@@ -366,6 +412,7 @@ export class EmojiReaction extends plugin {
             '#表情回应设置单个回应 - 仅回应第一个表情',
             '#表情回应设置冷却 [秒数] - 设置冷却时间（0-300秒）',
             '#表情回应设置本群 - 添加/移除当前群到白名单',
+            isMaster ? '#表情回应设置全局开启/关闭 - 设置未用户的默认状态' : '',
             '',
             '说明：支持 QQ 表情和 Unicode Emoji（如 😀👍❤️）',
             '',
@@ -376,7 +423,8 @@ export class EmojiReaction extends plugin {
             '',
             'Emoji 表情 ID 查看：',
             'https://koishi.js.org/QFace/#/qqnt'
-        ].join('\n'), true)
+        ].filter(Boolean).join('\n')
+        await e.reply(helpMsg, true)
 
         return true
     }
@@ -396,11 +444,13 @@ export class EmojiReaction extends plugin {
             emojiConfig.onlyGroups.includes(groupId)
         const isUserEnabled = await this.getUserEmojiReactionEnabled(userId)
 
+        const isMaster = e.isMaster
         const statusMsg = [
             '🎭 表情回应状态',
             '━━━━━━━━━━━━━━',
             `功能状态: ${isEnabled ? '✅ 已开启' : '❌ 已关闭'}`,
             `本群状态: ${isGroupAllowed ? '✅ 已生效' : '❌ 不在白名单'}`,
+            isMaster ? `全局默认: ${emojiConfig.globalEnabled ? '✅ 开启' : '❌ 关闭'}` : '',
             `个人状态: ${isUserEnabled ? '✅ 已开启' : '❌ 已关闭'}`,
             `回应模式: ${emojiConfig.useSameEmoji ? '🔄 同表情回应' : `📍 固定表情(${emojiConfig.emojiId || '74'})`}`,
             emojiConfig.useSameEmoji ? `多表情处理: ${emojiConfig.reactToAllEmojis !== false ? '回应全部' : '仅首个'}` : '',
@@ -413,7 +463,8 @@ export class EmojiReaction extends plugin {
             '━━━━━━━━━━━━━━',
             '支持: QQ表情 + Unicode Emoji(😀👍)',
             '指令: #表情回应[开启/关闭/状态/设置]',
-            '个人: #开启/关闭我的表情回应'
+            '个人: #开启/关闭我的表情回应',
+            isMaster ? '主人: #开启/关闭全局表情回应' : ''
         ].filter(Boolean).join('\n')
 
         await e.reply(statusMsg, true)

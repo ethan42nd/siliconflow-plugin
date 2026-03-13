@@ -2117,6 +2117,12 @@ export function supportGuoba() {
           component: 'Switch'
         },
         {
+          field: 'emojiReaction.globalEnabled',
+          label: '全局默认开启',
+          bottomHelpMessage: '对没有个人设置的用户，默认是否开启表情回应。用户可通过 #开启/关闭我的表情回应 覆盖此设置',
+          component: 'Switch'
+        },
+        {
           field: 'emojiReaction.cooldown',
           label: '冷却时间（秒）',
           bottomHelpMessage: '同一用户在冷却时间内多次发送表情，只回应一次，防止刷屏',
