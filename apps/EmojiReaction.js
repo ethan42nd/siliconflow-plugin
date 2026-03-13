@@ -70,8 +70,8 @@ export class EmojiReaction extends plugin {
     async getUserEmojiReactionEnabled(userId) {
         const userKey = `Yz:emojiReaction:user:${userId}:enabled`
         const value = await redis.get(userKey)
-        // 默认开启（未设置时返回 true）
-        return value !== 'false'
+        // 默认关闭（未设置时返回 false）
+        return value === 'true'
     }
 
     /**
@@ -82,11 +82,11 @@ export class EmojiReaction extends plugin {
     async setUserEmojiReactionEnabled(userId, enabled) {
         const userKey = `Yz:emojiReaction:user:${userId}:enabled`
         if (enabled) {
-            // 开启时删除键（恢复默认）
-            await redis.del(userKey)
+            // 开启时设置 true
+            await redis.set(userKey, 'true')
         } else {
-            // 关闭时设置 false
-            await redis.set(userKey, 'false')
+            // 关闭时删除键（恢复默认）
+            await redis.del(userKey)
         }
     }
 
@@ -268,7 +268,7 @@ export class EmojiReaction extends plugin {
             if (enable) {
                 await e.reply('✅ 已开启你的表情回应~\n发送表情时我会回应你哦！', true)
             } else {
-                await e.reply('❌ 已关闭你的表情回应~\n发送表情时我不会再回应你了', true)
+                await e.reply('❌ 已关闭你的表情回应~\n发送表情时我不会回应你了', true)
             }
         } catch (error) {
             logger.error('[表情回应] 切换用户设置失败:', error)
