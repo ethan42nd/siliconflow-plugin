@@ -154,6 +154,7 @@ emojiReaction:
   enable: false           # 是否启用表情回应功能
   emojiId: "74"           # 回应使用的表情ID（74=爱心，76=笑哭，179=点赞，176=搜索/思考）
   useSameEmoji: false     # 是否使用用户发送的相同表情进行回应
+  reactToAllEmojis: true  # 同表情模式下，是否回应消息中的所有表情（false=仅回应第一个）
   cooldown: 5             # 冷却时间（秒），防止频繁回应
   onlyGroups: []          # 仅在这些群生效（留空则全局生效）
 

@@ -3,6 +3,7 @@ import Config from '../components/Config.js'
 
 /**
  * 表情回应插件 - 当用户发送表情时，Bot自动进行表情回应
+ * 支持 QQ 表情(face) 和 Unicode Emoji
  */
 export class EmojiReaction extends plugin {
     constructor() {
@@ -36,6 +37,28 @@ export class EmojiReaction extends plugin {
     }
 
     /**
+     * 从文本中提取 Unicode Emoji
+     * @param {string} text - 文本内容
+     * @returns {Array} - Emoji 列表
+     */
+    extractUnicodeEmoji(text) {
+        if (!text) return []
+        // 匹配 Emoji 的正则表达式
+        const emojiRegex = /(\p{Emoji_Presentation}|\p{Extended_Pictographic})/gu
+        return text.match(emojiRegex) || []
+    }
+
+    /**
+     * 获取 Emoji 的 code point（用于表情回应 API）
+     * @param {string} emoji - Emoji 字符
+     * @returns {string} - code point
+     */
+    getEmojiCodePoint(emoji) {
+        // 获取第一个 code point（大部分 Emoji 只需要第一个）
+        return String(emoji.codePointAt(0))
+    }
+
+    /**
      * 处理表情回应
      */
     async handleEmojiReaction(e) {
@@ -55,25 +78,35 @@ export class EmojiReaction extends plugin {
             }
         }
 
-        // 检查消息中是否包含表情
-        let hasEmoji = false
-        let faceId = null
+        // 收集消息中的所有表情
+        const emojiIds = []
 
         for (const msg of e.message) {
-            if (msg.type === 'face') {
-                hasEmoji = true
-                faceId = msg.id
-                break
+            // QQ 表情 (face 类型)
+            if (msg.type === 'face' && msg.id) {
+                emojiIds.push(String(msg.id))
             }
-            // 检查是否为表情图片（自定义表情）
+            
+            // 表情图片（自定义表情）
             if (msg.type === 'image' && msg.as_face) {
-                hasEmoji = true
-                break
+                // 自定义表情没有固定 ID，跳过或使用特殊处理
+                continue
+            }
+            
+            // 文本中的 Unicode Emoji
+            if (msg.type === 'text' && msg.text) {
+                const emojis = this.extractUnicodeEmoji(msg.text)
+                for (const emoji of emojis) {
+                    const codePoint = this.getEmojiCodePoint(emoji)
+                    if (codePoint) {
+                        emojiIds.push(codePoint)
+                    }
+                }
             }
         }
 
-        // 如果没有表情，不处理
-        if (!hasEmoji) {
+        // 如果没有检测到表情，不处理
+        if (emojiIds.length === 0) {
             return false
         }
 
@@ -88,22 +121,30 @@ export class EmojiReaction extends plugin {
             return false
         }
 
-        // 获取回应的表情ID
-        let reactionEmojiId = emojiConfig.emojiId || '74' // 默认使用爱心表情
-
-        // 如果使用相同表情回应，且检测到了表情ID
-        if (emojiConfig.useSameEmoji && faceId) {
-            reactionEmojiId = faceId
-        }
-
         try {
-            // 发送表情回应
-            await this.sendEmojiReaction(e, reactionEmojiId)
+            // 判断回应模式
+            if (emojiConfig.useSameEmoji) {
+                // 使用相同表情回应 - 对每个检测到的表情都回应
+                const reactToAll = emojiConfig.reactToAllEmojis !== false // 默认 true
+                const maxReactions = reactToAll ? emojiIds.length : 1
+                
+                for (let i = 0; i < Math.min(maxReactions, emojiIds.length); i++) {
+                    await this.sendEmojiReaction(e, emojiIds[i])
+                    // 每个表情之间稍微延迟，避免请求过快
+                    if (i < maxReactions - 1) {
+                        await new Promise(resolve => setTimeout(resolve, 100))
+                    }
+                }
+                logger.debug(`[表情回应] 已向用户 ${e.user_id} 发送 ${Math.min(maxReactions, emojiIds.length)} 个表情回应`)
+            } else {
+                // 使用固定表情回应
+                const reactionEmojiId = emojiConfig.emojiId || '74' // 默认使用爱心表情
+                await this.sendEmojiReaction(e, reactionEmojiId)
+                logger.debug(`[表情回应] 已向用户 ${e.user_id} 发送固定表情回应: ${reactionEmojiId}`)
+            }
             
             // 设置冷却时间
             await redis.set(cooldownKey, String(now), { EX: Math.ceil(cooldown / 1000) })
-            
-            logger.debug(`[表情回应] 已向用户 ${e.user_id} 发送表情回应: ${reactionEmojiId}`)
         } catch (error) {
             logger.debug(`[表情回应] 发送表情回应失败: ${error.message}`)
         }
@@ -114,7 +155,7 @@ export class EmojiReaction extends plugin {
     /**
      * 发送表情回应（NapCat 等协议支持）
      * @param {Object} e - 事件对象
-     * @param {string} emojiId - 表情ID
+     * @param {string} emojiId - 表情ID（QQ表情ID 或 Unicode Emoji code point）
      */
     async sendEmojiReaction(e, emojiId) {
         try {
@@ -130,14 +171,16 @@ export class EmojiReaction extends plugin {
                 // NapCat / OneBot 11 协议
                 await e.bot.sendApi('set_msg_emoji_like', {
                     message_id: messageId,
-                    emoji_id: String(emojiId)
+                    emoji_id: String(emojiId),
+                    set: true
                 })
                 logger.info(`[表情回应] 已发送表情回应: ${emojiId}`)
             } else if (e.bot?.api) {
                 // 其他协议尝试
                 await e.bot.api('set_msg_emoji_like', {
                     message_id: messageId,
-                    emoji_id: String(emojiId)
+                    emoji_id: String(emojiId),
+                    set: true
                 })
                 logger.info(`[表情回应] 已发送表情回应: ${emojiId}`)
             } else {
@@ -202,6 +245,21 @@ export class EmojiReaction extends plugin {
             return true
         }
 
+        // #表情回应设置全部回应 / #表情回应设置单个回应
+        if (msg.includes('全部回应') || msg.includes('所有表情')) {
+            config.emojiReaction.reactToAllEmojis = true
+            Config.setConfig(config)
+            await e.reply('已设置为回应消息中的所有表情', true)
+            return true
+        }
+        
+        if (msg.includes('单个回应') || msg.includes('仅首个')) {
+            config.emojiReaction.reactToAllEmojis = false
+            Config.setConfig(config)
+            await e.reply('已设置为仅回应消息中的第一个表情', true)
+            return true
+        }
+
         // #表情回应设置冷却 5
         const cooldownMatch = msg.match(/^#表情回应设置冷却\s*(\d+)$/)
         if (cooldownMatch) {
@@ -241,16 +299,20 @@ export class EmojiReaction extends plugin {
             '表情回应设置帮助：',
             '#表情回应设置表情 [表情ID] - 设置固定回应表情',
             '#表情回应设置同表情 - 使用用户发送的相同表情回应',
+            '#表情回应设置全部回应 - 回应消息中的所有表情',
+            '#表情回应设置单个回应 - 仅回应第一个表情',
             '#表情回应设置冷却 [秒数] - 设置冷却时间（0-300秒）',
             '#表情回应设置本群 - 添加/移除当前群到白名单',
             '',
-            '常用表情ID参考：',
-            '74 = ❤️  爱心',
-            '76 = 😂  笑哭',
-            '179 = 👍  点赞',
-            '176 = 🔍  搜索/思考',
-            '307 = 🌹  玫瑰',
-            '326 = 🎉  庆祝'
+            '说明：支持 QQ 表情和 Unicode Emoji（如 😀👍❤️）',
+            '',
+            '常用 QQ 表情 ID 参考：',
+            '74 = ❤️  爱心    76 = 😂  笑哭',
+            '179 = 👍 点赞    176 = 🔍  搜索',
+            '307 = 🌹 玫瑰    326 = 🎉 庆祝',
+            '',
+            'Emoji 表情 ID 查看：',
+            'https://koishi.js.org/QFace/#/qqnt'
         ].join('\n'), true)
 
         return true
@@ -275,6 +337,7 @@ export class EmojiReaction extends plugin {
             `功能状态: ${isEnabled ? '✅ 已开启' : '❌ 已关闭'}`,
             `本群状态: ${isGroupAllowed ? '✅ 已生效' : '❌ 不在白名单'}`,
             `回应模式: ${emojiConfig.useSameEmoji ? '🔄 同表情回应' : `📍 固定表情(${emojiConfig.emojiId || '74'})`}`,
+            emojiConfig.useSameEmoji ? `多表情处理: ${emojiConfig.reactToAllEmojis !== false ? '回应全部' : '仅首个'}` : '',
             `冷却时间: ${emojiConfig.cooldown || 5}秒`,
             '',
             '白名单群:',
@@ -282,8 +345,9 @@ export class EmojiReaction extends plugin {
                 ? emojiConfig.onlyGroups.map(id => `  ${id}`).join('\n')
                 : '  所有群',
             '━━━━━━━━━━━━━━',
+            '支持: QQ表情 + Unicode Emoji(😀👍)',
             '指令: #表情回应[开启/关闭/状态/设置]'
-        ].join('\n')
+        ].filter(Boolean).join('\n')
 
         await e.reply(statusMsg, true)
         return true

@@ -2111,6 +2111,12 @@ export function supportGuoba() {
           component: 'Switch'
         },
         {
+          field: 'emojiReaction.reactToAllEmojis',
+          label: '回应所有表情',
+          bottomHelpMessage: '同表情模式下，如果消息包含多个表情，是否全部回应（关闭则只回应第一个）',
+          component: 'Switch'
+        },
+        {
           field: 'emojiReaction.cooldown',
           label: '冷却时间（秒）',
           bottomHelpMessage: '同一用户在冷却时间内多次发送表情，只回应一次，防止刷屏',
