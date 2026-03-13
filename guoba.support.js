@@ -2086,6 +2086,55 @@ export function supportGuoba() {
           }
         },
         {
+          label: '表情回应配置',
+          component: 'Divider'
+        },
+        {
+          field: 'emojiReaction.enable',
+          label: '启用表情回应',
+          bottomHelpMessage: '开启后，当用户发送表情时，Bot会自动用表情回应该消息（NapCat等协议支持）；更改后重启生效；指令：#表情回应[开启/关闭/状态/设置]',
+          component: 'Switch'
+        },
+        {
+          field: 'emojiReaction.emojiId',
+          label: '回应表情ID',
+          bottomHelpMessage: '设置Bot回应时使用的表情ID。常用：74=爱心❤️，76=笑哭😂，179=点赞👍，176=搜索🔍，307=玫瑰🌹，326=庆祝🎉；在 https://github.com/klarkxy/qqface 可查看表情ID对照表',
+          component: 'Input',
+          componentProps: {
+            placeholder: '74'
+          }
+        },
+        {
+          field: 'emojiReaction.useSameEmoji',
+          label: '使用相同表情回应',
+          bottomHelpMessage: '开启后，Bot会使用用户发送的相同表情进行回应（覆盖上面的固定表情ID设置）',
+          component: 'Switch'
+        },
+        {
+          field: 'emojiReaction.cooldown',
+          label: '冷却时间（秒）',
+          bottomHelpMessage: '同一用户在冷却时间内多次发送表情，只回应一次，防止刷屏',
+          component: 'InputNumber',
+          componentProps: {
+            min: 0,
+            max: 300,
+            step: 1,
+            placeholder: '5'
+          }
+        },
+        {
+          field: 'emojiReaction.onlyGroups',
+          label: '生效群聊',
+          bottomHelpMessage: '仅在这些群中生效（留空则全局生效）；可用指令 #表情回应设置本群 快速添加当前群',
+          component: 'Select',
+          componentProps: {
+            allowAdd: true,
+            allowDel: true,
+            mode: 'multiple',
+            options: groupList_total
+          }
+        },
+        {
           label: '群自动表情包配置',
           component: 'Divider'
         },
