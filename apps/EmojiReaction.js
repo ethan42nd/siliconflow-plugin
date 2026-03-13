@@ -24,6 +24,10 @@ export class EmojiReaction extends plugin {
                     permission: 'master'
                 },
                 {
+                    reg: '^#(开启|关闭)我的表情回应$',
+                    fnc: 'toggleUserEmojiReaction'
+                },
+                {
                     reg: '^#表情回应设置.*$',
                     fnc: 'setEmojiReaction',
                     permission: 'master'
@@ -59,6 +63,34 @@ export class EmojiReaction extends plugin {
     }
 
     /**
+     * 获取用户表情回应设置
+     * @param {string} userId - 用户QQ号
+     * @returns {Promise<boolean>} - 是否开启
+     */
+    async getUserEmojiReactionEnabled(userId) {
+        const userKey = `Yz:emojiReaction:user:${userId}:enabled`
+        const value = await redis.get(userKey)
+        // 默认开启（未设置时返回 true）
+        return value !== 'false'
+    }
+
+    /**
+     * 设置用户表情回应开关
+     * @param {string} userId - 用户QQ号
+     * @param {boolean} enabled - 是否开启
+     */
+    async setUserEmojiReactionEnabled(userId, enabled) {
+        const userKey = `Yz:emojiReaction:user:${userId}:enabled`
+        if (enabled) {
+            // 开启时删除键（恢复默认）
+            await redis.del(userKey)
+        } else {
+            // 关闭时设置 false
+            await redis.set(userKey, 'false')
+        }
+    }
+
+    /**
      * 处理表情回应
      */
     async handleEmojiReaction(e) {
@@ -76,6 +108,13 @@ export class EmojiReaction extends plugin {
             if (!emojiConfig.onlyGroups.includes(groupId)) {
                 return false
             }
+        }
+
+        // 检查用户是否开启了自己的表情回应（默认开启）
+        const userEnabled = await this.getUserEmojiReactionEnabled(String(e.user_id))
+        if (!userEnabled) {
+            logger.debug(`[表情回应] 用户 ${e.user_id} 已关闭个人表情回应`)
+            return false
         }
 
         // 收集消息中的所有表情
@@ -192,7 +231,7 @@ export class EmojiReaction extends plugin {
     }
 
     /**
-     * 开启/关闭表情回应功能
+     * 开启/关闭表情回应功能（主人命令）
      */
     async toggleEmojiReaction(e) {
         const action = e.msg.match(/^#表情回应(开启|关闭)$/)[1]
@@ -209,6 +248,30 @@ export class EmojiReaction extends plugin {
             await e.reply(`表情回应功能已${enable ? '开启' : '关闭'}~`, true)
         } catch (error) {
             logger.error('[表情回应] 切换功能状态失败:', error)
+            await e.reply('设置失败，请检查控制台日志', true)
+        }
+
+        return true
+    }
+
+    /**
+     * 用户开启/关闭自己的表情回应
+     */
+    async toggleUserEmojiReaction(e) {
+        const action = e.msg.match(/^#(开启|关闭)我的表情回应$/)[1]
+        const enable = action === '开启'
+        const userId = String(e.user_id)
+
+        try {
+            await this.setUserEmojiReactionEnabled(userId, enable)
+            
+            if (enable) {
+                await e.reply('✅ 已开启你的表情回应~\n发送表情时我会回应你哦！', true)
+            } else {
+                await e.reply('❌ 已关闭你的表情回应~\n发送表情时我不会再回应你了', true)
+            }
+        } catch (error) {
+            logger.error('[表情回应] 切换用户设置失败:', error)
             await e.reply('设置失败，请检查控制台日志', true)
         }
 
@@ -325,17 +388,20 @@ export class EmojiReaction extends plugin {
         const config = Config.getConfig()
         const emojiConfig = config.emojiReaction || {}
         const groupId = String(e.group_id)
+        const userId = String(e.user_id)
 
         const isEnabled = emojiConfig.enable || false
         const isGroupAllowed = !emojiConfig.onlyGroups || 
             emojiConfig.onlyGroups.length === 0 || 
             emojiConfig.onlyGroups.includes(groupId)
+        const isUserEnabled = await this.getUserEmojiReactionEnabled(userId)
 
         const statusMsg = [
             '🎭 表情回应状态',
             '━━━━━━━━━━━━━━',
             `功能状态: ${isEnabled ? '✅ 已开启' : '❌ 已关闭'}`,
             `本群状态: ${isGroupAllowed ? '✅ 已生效' : '❌ 不在白名单'}`,
+            `个人状态: ${isUserEnabled ? '✅ 已开启' : '❌ 已关闭'}`,
             `回应模式: ${emojiConfig.useSameEmoji ? '🔄 同表情回应' : `📍 固定表情(${emojiConfig.emojiId || '74'})`}`,
             emojiConfig.useSameEmoji ? `多表情处理: ${emojiConfig.reactToAllEmojis !== false ? '回应全部' : '仅首个'}` : '',
             `冷却时间: ${emojiConfig.cooldown || 5}秒`,
@@ -346,7 +412,8 @@ export class EmojiReaction extends plugin {
                 : '  所有群',
             '━━━━━━━━━━━━━━',
             '支持: QQ表情 + Unicode Emoji(😀👍)',
-            '指令: #表情回应[开启/关闭/状态/设置]'
+            '指令: #表情回应[开启/关闭/状态/设置]',
+            '个人: #开启/关闭我的表情回应'
         ].filter(Boolean).join('\n')
 
         await e.reply(statusMsg, true)
