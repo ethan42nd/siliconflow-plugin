@@ -30,9 +30,9 @@ export class chuoyichuo extends plugin {
         logger.info('[戳一戳] 触发互动');
 
         const groupId = String(e.group_id);
-        const probText = pokeConf.reply_text_prob || 0.2;
-        const probImg = pokeConf.reply_img_prob || 0.5;
-        const probMute = pokeConf.mutepick_prob || 0;
+        const probText = pokeConf.reply_text_prob ?? 0.2;
+        const probImg = pokeConf.reply_img_prob ?? 0.5;
+        const probMute = pokeConf.mutepick_prob ?? 0;
         const randomVal = Math.random();
         let currentProb = 0;
 
