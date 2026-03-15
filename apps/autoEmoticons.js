@@ -21,6 +21,43 @@ const watchers = new Map()
 let sharedPicturesWatcher = null
 
 /**
+ * 检查当前时间是否在允许的生效时间范围内 (增强版：强制北京时间 + 容错)
+ * @param {Object} config 配置对象
+ * @returns {boolean}
+ */
+function isWithinActiveTime(config) {
+    if (!config.autoEmoticons.timeRestrictionEnabled) return true;
+
+    // 获取当前的 UTC+8 (北京时间) 时间，无视服务器本地时区
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const beijingTime = new Date(utc + (3600000 * 8));
+
+    const currentTime = beijingTime.getHours() * 60 + beijingTime.getMinutes();
+
+    const parseTime = (timeVal) => {
+        if (!timeVal) return 0;
+        const timeStr = String(timeVal); // 强制转换为字符串，防止在 yaml 里错填成纯数字
+        if (!timeStr.includes(':')) {
+            return (Number(timeStr) || 0) * 60;
+        }
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return (hours || 0) * 60 + (minutes || 0);
+    };
+
+    const startTime = parseTime(config.autoEmoticons.activeStartTime || "08:00");
+    const endTime = parseTime(config.autoEmoticons.activeEndTime || "23:00");
+
+    if (startTime <= endTime) {
+        // 正常白天区间：如 08:00 - 23:00
+        return currentTime >= startTime && currentTime <= endTime;
+    } else {
+        // 跨夜区间：如 22:00 - 06:00 (大于晚上10点，或小于早上6点)
+        return currentTime >= startTime || currentTime <= endTime;
+    }
+}
+
+/**
  * 兼容旧版配置：将旧版的字符串数组转换为对象数组
  */
 function getNormalizedAllowGroups(config) {
@@ -210,20 +247,26 @@ export class autoEmoticons extends plugin {
         super({
             name: '自动表情包',
             dsc: '自动保存群聊中多次出现的图片作为表情包，并随机发送',
-            event: 'message.group',
-            priority: 5000,
+            event: 'message.group', // 恢复只监听群消息
+            priority: -5000,
             rule: [
                 {
                     reg: regStr,
                     fnc: 'autoEmoticonsTrigger',
                     log: false
                 },
+                // 【新增】监听哒咩记录等一系列指令
+                {
+                    event: 'message.group',
+                    reg: '^#?(哒|达)咩(文本|图片)?记录(第\\d+页|\\d+)?$',
+                    fnc: 'showDamieRecord',
+                },
                 {
                     reg: '^#?(哒|达)咩$',
                     fnc: 'deleteEmoji',
                 },
                 {
-                    reg: '^#表情包配置$',
+                    reg: '^#群自动表情包配置$',
                     fnc: 'showConfig',
                 },
                 {
@@ -391,6 +434,11 @@ export class autoEmoticons extends plugin {
         const lastSendTime = await redis.get(cooldownKey)
         const now = Date.now()
 
+        // 【新增时间拦截】如果不在活跃时间内，直接终止发送逻辑
+        if (!isWithinActiveTime(config)) {
+            return false;
+        }
+
         if (lastSendTime && (now - parseInt(lastSendTime)) < (groupConf.sendCD * 1000)) {
             const remainingTime = Math.ceil(((parseInt(lastSendTime) + (groupConf.sendCD * 1000)) - now) / 1000)
             logger.debug(`[autoEmoticons] 群 ${groupId} 还在冷却中，剩余 ${remainingTime} 秒`)
@@ -479,6 +527,11 @@ export class autoEmoticons extends plugin {
     async sendimg() {
         if (!useEmojiSave_Switch) return false;
         const config = Config.getConfig()
+
+        // 【新增时间拦截】如果不在活跃时间内，定时任务直接罢工
+        if (!isWithinActiveTime(config)) {
+            return false;
+        }
 
         // 初始化共享图片监视器
         initSharedPicturesWatcher()
@@ -571,7 +624,145 @@ export class autoEmoticons extends plugin {
     }
 
     /**
-     * 删除表情包（需要修改以支持共享图片）
+     * 显示哒咩记录（支持翻页、指定数量和合并转发）
+     */
+    async showDamieRecord(e) {
+        const msg = e.msg;
+        let type = 'all'; 
+        if (msg.includes('文本')) type = 'text';
+        if (msg.includes('图片')) type = 'image';
+
+        let page = 1;
+        let count = 3;
+
+        // 解析指定页数或数量
+        const pageMatch = msg.match(/第(\d+)页/);
+        if (pageMatch) {
+            page = parseInt(pageMatch[1]) || 1;
+            count = 10; // 翻页模式固定每页 10 条
+        } else {
+            const countMatch = msg.match(/记录(\d+)$/);
+            if (countMatch) {
+                count = parseInt(countMatch[1]) || 3;
+                count = Math.min(count, 10); // 最多不超过 10 条防止过载
+            }
+        }
+
+        const recycleBinPath = path.join(process.cwd(), 'data', 'autoEmoticons', 'recycle_bin');
+        const recycleTextPath = path.join(process.cwd(), 'data', 'autoEmoticons', 'recycle_bin_text.txt');
+
+        let texts = [];
+        let images = [];
+
+        // 1. 读取并解析文本记录
+        if (fs.existsSync(recycleTextPath)) {
+            const content = fs.readFileSync(recycleTextPath, 'utf-8');
+            // 按行分割，过滤空行，反转数组让最新拉黑的展示在最前面
+            texts = content.split('\n').filter(Boolean).reverse(); 
+        }
+
+        // 2. 读取并解析图片记录
+        if (fs.existsSync(recycleBinPath)) {
+            const files = fs.readdirSync(recycleBinPath);
+            images = files.filter(f => ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(path.extname(f).toLowerCase()))
+                          .map(f => {
+                              // 从类似 "1712345678900_图片名.jpg" 的文件名中提取时间戳进行排序
+                              const parts = f.split('_');
+                              const ts = parseInt(parts[0]) || 0;
+                              return { name: f, time: ts, fullPath: path.join(recycleBinPath, f) };
+                          })
+                          .sort((a, b) => b.time - a.time); // 按时间倒序，最新的在前
+        }
+
+        const totalTexts = texts.length;
+        const totalImages = images.length;
+
+        let forwardMsg = []; // 用于装填合并转发内容的消息数组
+        
+        // 统计信息首位展示
+        forwardMsg.push(`📊 哒咩回收站统计\n━━━━━━━━━━━━━━\n📝 文本拦截: ${totalTexts} 条\n🖼️ 图片拦截: ${totalImages} 张`);
+
+        // 根据指令类型组装不同的展现内容
+        if (type === 'all') {
+            forwardMsg.push(`--- 最近 ${count} 条文本记录 ---`);
+            const showTexts = texts.slice(0, count);
+            if (showTexts.length > 0) {
+                showTexts.forEach(t => forwardMsg.push(t));
+            } else {
+                forwardMsg.push("暂无文本记录");
+            }
+
+            forwardMsg.push(`--- 最近 ${count} 张图片记录 ---`);
+            const showImages = images.slice(0, count);
+            if (showImages.length > 0) {
+                showImages.forEach(img => {
+                    forwardMsg.push(segment.image(img.fullPath));
+                });
+            } else {
+                forwardMsg.push("暂无图片记录");
+            }
+
+        } else if (type === 'text') {
+            const maxPage = Math.ceil(totalTexts / 10) || 1;
+            page = Math.min(page, maxPage);
+            const start = (page - 1) * 10;
+            const end = start + 10;
+            const showTexts = texts.slice(start, end);
+
+            forwardMsg.push(`📝 文本哒咩记录 (第 ${page}/${maxPage} 页)`);
+            if (showTexts.length > 0) {
+                showTexts.forEach((t, idx) => forwardMsg.push(`${start + idx + 1}. ${t}`));
+            } else {
+                forwardMsg.push("暂无文本记录");
+            }
+
+        } else if (type === 'image') {
+            const maxPage = Math.ceil(totalImages / 10) || 1;
+            page = Math.min(page, maxPage);
+            const start = (page - 1) * 10;
+            const end = start + 10;
+            const showImages = images.slice(start, end);
+
+            forwardMsg.push(`🖼️ 图片哒咩记录 (第 ${page}/${maxPage} 页)`);
+            if (showImages.length > 0) {
+                showImages.forEach((img, idx) => {
+                    // 将编号文本和图片拼在一个气泡里
+                    forwardMsg.push([`编号 ${start + idx + 1}:\n`, segment.image(img.fullPath)]);
+                });
+            } else {
+                forwardMsg.push("暂无图片记录");
+            }
+        }
+
+        // 3. 制作标准合并转发消息节点
+        let forwardNode = [];
+        for (let msg of forwardMsg) {
+            forwardNode.push({
+                user_id: Bot.uin,
+                nickname: Bot.nickname,
+                message: msg
+            });
+        }
+
+        try {
+            let replyMsg;
+            if (e.isGroup) {
+                replyMsg = await e.group.makeForwardMsg(forwardNode);
+            } else {
+                replyMsg = await e.friend.makeForwardMsg(forwardNode);
+            }
+            // 发送组装好的合并转发消息
+            await e.reply(replyMsg);
+        } catch (err) {
+            logger.error(`[哒咩记录] 生成合并转发失败: ${err}`);
+            await e.reply("合并转发消息生成失败，可能是当前框架或协议端暂不支持。");
+        }
+        
+        return true;
+    }
+    
+    /**
+     * 将表情包或戳一戳的文字移入回收站
      */
     async deleteEmoji(e) {
         const groupId = String(e.group_id)
@@ -582,63 +773,110 @@ export class autoEmoticons extends plugin {
             return false;
         }
 
+        // ==============================
+        // 1. 尝试查找是否为图片消息
+        // ==============================
         const fileInfo = await redis.get(`Yz:autoEmoticons.sent:pic_filePath:${groupId}:${replyMsgId}`);
-        if (!fileInfo) {
-            logger.mark(`[autoEmoticons] 该图片也许不是本插件发送的`)
-            return false;
+        if (fileInfo) {
+            try {
+                let filePath;
+                let fileUnique = null;
+                let isShared = false;
+
+                if (fileInfo.startsWith('shared:')) {
+                    isShared = true;
+                    const relPath = fileInfo.substring(7);
+                    filePath = path.join(process.cwd(), 'data', 'autoEmoticons', 'PaimonChuoYiChouPictures', relPath);
+                    fileUnique = path.basename(filePath, path.extname(filePath));
+                } else {
+                    filePath = path.join(process.cwd(), 'data', 'autoEmoticons', 'emoji_save', groupId, fileInfo);
+                    fileUnique = path.basename(fileInfo, path.extname(fileInfo));
+                }
+
+                if (filePath && fs.existsSync(filePath)) {
+                    const filename = path.basename(filePath);
+                    const recycleBinPath = path.join(process.cwd(), 'data', 'autoEmoticons', 'recycle_bin');
+                    if (!fs.existsSync(recycleBinPath)) {
+                        fs.mkdirSync(recycleBinPath, { recursive: true });
+                    }
+                    const targetPath = path.join(recycleBinPath, `${Date.now()}_${filename}`);
+                    
+                    try {
+                        fs.renameSync(filePath, targetPath);
+                    } catch(err) {
+                        fs.copyFileSync(filePath, targetPath);
+                        fs.unlinkSync(filePath);
+                    }
+                    logger.mark(`[autoEmoticons] 图片已移入回收站: ${targetPath}`);
+
+                    if (isShared) {
+                        const index = sharedPicturesCache.indexOf(filePath);
+                        if (index > -1) sharedPicturesCache.splice(index, 1);
+                    } else {
+                        const emojiList = emojiListCache.get(groupId) || [];
+                        const index = emojiList.indexOf(filename);
+                        if (index > -1) {
+                            emojiList.splice(index, 1);
+                            emojiListCache.set(groupId, emojiList);
+                        }
+                    }
+
+                    if (fileUnique) {
+                        const blockKey = `Yz:autoEmoticons:blocked:${fileUnique}`
+                        await redis.set(blockKey, '1', { EX: 30 * 24 * 60 * 60 })
+                    }
+
+                    let res = await e.group.recallMsg(replyMsgId)
+                    if (!res) this.reply("人家不是管理员，不能撤回超过2分钟的消息呢~")
+                    await e.reply(`呜呜呜~人家错了，图片已经被关进小黑屋了~`);
+                } else {
+                    await e.reply("文件好像已经被删除了，找不到它呢。");
+                }
+                await redis.del(`Yz:autoEmoticons.sent:pic_filePath:${groupId}:${replyMsgId}`);
+            } catch (error) {
+                logger.error(`[autoEmoticons] 图片移入回收站失败: ${error}`);
+            }
+            return true;
         }
 
-        try {
-            let filePath;
-            let canDelete = true;
-            let fileUnique = null;
+        // ==============================
+        // 2. 尝试查找是否为文字消息
+        // ==============================
+        const textContent = await redis.get(`Yz:autoEmoticons.sent:text_content:${groupId}:${replyMsgId}`);
+        if (textContent) {
+            try {
+                // 执行撤回
+                let res = await e.group.recallMsg(replyMsgId);
+                if (!res) this.reply("人家不是管理员，不能撤回超过2分钟的消息呢~");
 
-            if (fileInfo.startsWith('shared:')) {
-                // 共享图片 - 不允许删除
-                canDelete = false;
-                await e.reply('[autoEmoticons] 这是共享目录图片，不能删除哦~', true);
-            } else {
-                // 群专属表情
-                filePath = path.join(process.cwd(), 'data', 'autoEmoticons', 'emoji_save', groupId, fileInfo);
-                // 获取文件唯一标识，去除扩展名
-                fileUnique = path.basename(fileInfo, path.extname(fileInfo));
+                // 从 Config.js 中读取并修改配置
+                let config = Config.getConfig();
+                if (config.pokeConfig && config.pokeConfig.word_list) {
+                    let words = config.pokeConfig.word_list.split('\n').map(w => w.trim()).filter(Boolean);
+                    const index = words.indexOf(textContent);
+                    if (index > -1) {
+                        words.splice(index, 1);
+                        config.pokeConfig.word_list = words.join('\n');
+                        Config.setConfig(config); // 动态保存配置，实时生效
+                        logger.mark(`[autoEmoticons] 已从戳一戳词库中移除: ${textContent}`);
+                    }
+                }
+
+                // 写入文本回收站 (追加到文件末尾)
+                const recycleTextPath = path.join(process.cwd(), 'data', 'autoEmoticons', 'recycle_bin_text.txt');
+                const timeStr = new Date().toLocaleString('zh-CN', { hour12: false });
+                fs.appendFileSync(recycleTextPath, `[${timeStr}] ${textContent}\n`);
+
+                await e.reply(`这句台词太尬了，我已经把它丢进文本回收站啦！`);
+                await redis.del(`Yz:autoEmoticons.sent:text_content:${groupId}:${replyMsgId}`);
+            } catch (error) {
+                logger.error(`[autoEmoticons] 文字移入回收站失败: ${error}`);
             }
-
-            if (canDelete && filePath && fs.existsSync(filePath)) {
-                const filename = path.basename(filePath);
-                fs.unlinkSync(filePath);
-
-                const emojiList = emojiListCache.get(groupId) || [];
-                const index = emojiList.indexOf(filename);
-                if (index > -1) {
-                    emojiList.splice(index, 1);
-                    emojiListCache.set(groupId, emojiList);
-                }
-
-                // 将删除的表情添加到黑名单，30天内不再下载
-                if (fileUnique) {
-                    const blockKey = `Yz:autoEmoticons:blocked:${fileUnique}`
-                    const ONE_MONTH_IN_SECONDS = 30 * 24 * 60 * 60 // 30天的秒数
-                    await redis.set(blockKey, '1', {
-                        EX: ONE_MONTH_IN_SECONDS
-                    })
-                    logger.mark(`[autoEmoticons] 表情被删除，已加入黑名单: ${fileUnique}，30天内不再下载`)
-                }
-
-                let res = await e.group.recallMsg(replyMsgId)
-                if (!res) {
-                    this.reply("人家不是管理员，不能撤回超过2分钟的消息呢~")
-                }
-
-                await e.reply(`呜呜呜~人家错了，以后不发了~呜`);
-            }
-
-            await redis.del(`Yz:autoEmoticons.sent:pic_filePath:${groupId}:${replyMsgId}`);
-        } catch (error) {
-            logger.error(`[autoEmoticons] 删除表情失败: ${error}`);
+            return true;
         }
 
-        return true;
+        logger.mark(`[autoEmoticons] 该消息既不是本插件发送的图片，也不是本插件发送的文字`);
+        return false;
     }
 
     /**
@@ -716,6 +954,7 @@ export class autoEmoticons extends plugin {
             `　⏰ 发送冷却: ${cooldownStatus}`,
             '',
             '⚙️ 当前群生效参数:',
+            `　⏰ 活跃时间: ${config.autoEmoticons.timeRestrictionEnabled ? `${config.autoEmoticons.activeStartTime} ~ ${config.autoEmoticons.activeEndTime}` : '全天24小时'}`,
             `　⏱️ 记录时长: ${formatTime(config.autoEmoticons.expireTimeInSeconds)}`,
             `　🔢 确认次数: ${groupConf.confirmCount} 次`,
             `　🎲 发送概率: ${(groupConf.replyRate * 100).toFixed(1)}%`,

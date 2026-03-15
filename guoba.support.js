@@ -5,6 +5,275 @@ import { pluginRoot } from "./model/path.js";
 
 const geminiModelsByFetch = Config.getConfig()?.geminiModelsByFetch
 
+// --- 【新增】获取智能模式的模型池，生成锅巴下拉菜单选项 ---
+const smartApiList = Config.getConfig()?.smart_APIList || [];
+const smartModelOptions = [
+  { label: '🤖 使用当前对话模型（默认）', value: '' },
+  ...smartApiList.map(api => ({ label: `🔧 ${api.remark}`, value: api.remark }))
+];
+if (smartModelOptions.length === 1) {
+  smartModelOptions.push({ label: '⚠️ 请先在智能接口池中添加接口', value: '' });
+}
+// ----------------------------------------------------
+
+// --- 【新增】结构化记忆提示词预设 ---
+const MEMORY_PROMPT_PRESETS = {
+  standard: {
+    name: '标准模式（推荐）',
+    description: '平衡的信息提取，适合大多数场景',
+    structuredPrompt: `你是一个专业的用户信息分析助手。请分析用户的聊天记录，提取结构化信息。
+
+请严格按照以下JSON格式输出（不要包含任何其他内容，确保输出是合法的JSON）：
+{
+  "facts": [
+    {
+      "category": "basic",
+      "key": "属性名称",
+      "value": "属性值",
+      "confidence": 0.9
+    }
+  ],
+  "episodes": [
+    {
+      "date": "YYYY-MM-DD",
+      "event": "事件描述",
+      "importance": 0.8,
+      "emotionalTone": "情绪色彩"
+    }
+  ],
+  "summary": {
+    "short": "一句话总结（30字内）",
+    "detailed": "详细描述（100字内）"
+  }
+}
+
+category 可选值：
+- basic: 基本信息（年龄、职业、学历、所在地等）
+- interest: 兴趣爱好（游戏、动漫、运动、美食等）
+- personality: 性格特点（内向/外向、幽默/严肃等）
+- habit: 习惯偏好（作息、常用语、表情习惯等）
+- relationship: 人际关系（朋友、家庭、宠物等）
+- skill: 技能特长（编程、绘画、音乐等）
+
+注意：
+1. 只输出JSON，不要任何解释或markdown代码块标记
+2. confidence 范围 0-1，表示你对这个信息的确定程度
+3. 如果信息与历史档案冲突，以新信息为准，但保留高置信度的旧信息
+4. 不要编造信息，只从提供的消息中提取`,
+    syncPrompt: `你是一个顶级的心理侧写师。请根据用户的历史聊天记录，生成深度结构化档案。
+
+请严格按照以下JSON格式输出（不要包含任何其他内容）：
+{
+  "facts": [
+    {
+      "category": "basic|interest|personality|habit|relationship|skill",
+      "key": "属性名",
+      "value": "属性值",
+      "confidence": 0.9
+    }
+  ],
+  "episodes": [
+    {
+      "date": "YYYY-MM-DD",
+      "event": "重要事件描述",
+      "importance": 0.8,
+      "emotionalTone": "情绪"
+    }
+  ],
+  "social": {
+    "closeFriends": ["好友昵称1", "好友昵称2"],
+    "activeTopics": ["常聊话题1", "常聊话题2"],
+    "roleInGroup": "群内角色（如：活跃分子/潜水员/开心果）"
+  },
+  "summary": {
+    "short": "一句话画像（50字内）",
+    "detailed": "详细画像（300字内）"
+  }
+}
+
+注意：
+1. 只输出JSON，不要任何解释
+2. 结合历史档案进行分析，不要遗漏重要信息
+3. 确保JSON格式合法`},
+
+  concise: {
+    name: '简洁模式',
+    description: '只提取关键信息，响应更快，Token消耗更少',
+    structuredPrompt: `分析用户聊天，提取关键信息，输出JSON：
+{
+  "facts": [
+    {"category": "basic|interest|personality", "key": "属性", "value": "值", "confidence": 0.8}
+  ],
+  "episodes": [],
+  "summary": {"short": "一句话总结", "detailed": ""}
+}
+
+类别：basic(基本信息), interest(兴趣), personality(性格)
+只提取高置信度(>0.7)的关键信息，不要冗余内容。`,
+    syncPrompt: `深度分析用户历史记录，输出JSON档案：
+{
+  "facts": [{"category": "basic|interest|personality", "key": "", "value": "", "confidence": 0.9}],
+  "episodes": [{"date": "", "event": "", "importance": 0.8, "emotionalTone": ""}],
+  "social": {"closeFriends": [], "activeTopics": [], "roleInGroup": ""},
+  "summary": {"short": "", "detailed": ""}
+}
+
+只记录重要事实和事件，简洁高效。`},
+
+  detailed: {
+    name: '详细模式',
+    description: '提取更丰富的细节，适合深度用户画像',
+    structuredPrompt: `你是专业用户分析师。深入分析聊天记录，提取丰富的用户信息。
+
+输出JSON格式：
+{
+  "facts": [
+    {
+      "category": "basic|interest|personality|habit|relationship|skill",
+      "key": "具体属性名",
+      "value": "详细属性值",
+      "confidence": 0.85
+    }
+  ],
+  "episodes": [
+    {
+      "date": "YYYY-MM-DD",
+      "event": "详细事件描述，包含上下文",
+      "importance": 0.8,
+      "emotionalTone": "具体情绪描述"
+    }
+  ],
+  "summary": {
+    "short": "精炼的一句话画像",
+    "detailed": "详细的用户画像描述，包含性格特点、兴趣爱好、行为模式等多维度分析"
+  }
+}
+
+要求：
+1. 仔细分析每条消息，提取隐含信息
+2. 关注用户的语言风格、常用词汇、表达习惯
+3. 记录具体细节而非笼统描述
+4. 对不确定的信息给予较低置信度
+5. 必须确保输出合法JSON`,
+    syncPrompt: `你是资深用户研究专家。基于大量历史数据，生成深度用户画像档案。
+
+输出JSON格式：
+{
+  "facts": [
+    {"category": "basic|interest|personality|habit|relationship|skill", "key": "", "value": "", "confidence": 0.9}
+  ],
+  "episodes": [
+    {"date": "YYYY-MM-DD", "event": "", "importance": 0.8, "emotionalTone": ""}
+  ],
+  "social": {
+    "closeFriends": [],
+    "activeTopics": [],
+    "roleInGroup": ""
+  },
+  "summary": {
+    "short": "",
+    "detailed": ""
+  }
+}
+
+分析要求：
+1. 结合历史档案，进行深度综合分析
+2. 识别用户的行为模式、价值观、社交特点
+3. 记录重要的互动事件和情感变化
+4. 推断用户的潜在需求和偏好
+5. 输出完整、详细的结构化档案`},
+
+  roleplay: {
+    name: '角色扮演模式',
+    description: '适合RP群，提取角色设定和世界观信息',
+    structuredPrompt: `分析群聊中的角色扮演信息，提取角色设定。
+
+输出JSON：
+{
+  "facts": [
+    {"category": "basic", "key": "角色名", "value": "", "confidence": 0.9},
+    {"category": "basic", "key": "性别/年龄", "value": "", "confidence": 0.8},
+    {"category": "interest", "key": "喜好", "value": "", "confidence": 0.7},
+    {"category": "personality", "key": "性格", "value": "", "confidence": 0.8},
+    {"category": "relationship", "key": "关系", "value": "", "confidence": 0.7},
+    {"category": "skill", "key": "能力/技能", "value": "", "confidence": 0.7}
+  ],
+  "episodes": [
+    {"date": "", "event": "剧情事件", "importance": 0.8, "emotionalTone": ""}
+  ],
+  "summary": {
+    "short": "角色一句话简介",
+    "detailed": "角色详细设定"
+  }
+}
+
+注意区分角色扮演内容和现实信息，优先记录角色设定。`,
+    syncPrompt: `深度分析RP群历史记录，整理角色档案。
+
+输出JSON：
+{
+  "facts": [{"category": "", "key": "", "value": "", "confidence": 0.9}],
+  "episodes": [{"date": "", "event": "", "importance": 0.8, "emotionalTone": ""}],
+  "social": {"closeFriends": [], "activeTopics": [], "roleInGroup": "剧情定位"},
+  "summary": {"short": "", "detailed": ""}
+}
+
+重点：
+1. 梳理角色的完整设定和背景故事
+2. 记录重要的剧情发展和人物关系变化
+3. 分析角色的成长轨迹和行为模式
+4. 区分不同时间线的剧情`},
+
+  game: {
+    name: '游戏群模式',
+    description: '适合游戏群，重点提取游戏ID、段位、常用英雄等',
+    structuredPrompt: `分析游戏群聊天记录，提取游戏相关信息。
+
+输出JSON：
+{
+  "facts": [
+    {"category": "basic", "key": "游戏ID", "value": "", "confidence": 0.9},
+    {"category": "skill", "key": "段位/等级", "value": "", "confidence": 0.8},
+    {"category": "interest", "key": "常玩英雄/角色", "value": "", "confidence": 0.8},
+    {"category": "interest", "key": "擅长位置", "value": "", "confidence": 0.7},
+    {"category": "habit", "key": "游戏习惯", "value": "", "confidence": 0.6}
+  ],
+  "episodes": [
+    {"date": "", "event": "上分/掉分、精彩操作等", "importance": 0.7, "emotionalTone": ""}
+  ],
+  "summary": {
+    "short": "玩家简介",
+    "detailed": "游戏风格和特点"
+  }
+}
+
+重点提取游戏ID、段位、常用角色等硬核信息。`,
+    syncPrompt: `分析游戏群历史，整理玩家档案。
+
+输出JSON：
+{
+  "facts": [{"category": "", "key": "", "value": "", "confidence": 0.9}],
+  "episodes": [{"date": "", "event": "", "importance": 0.8, "emotionalTone": ""}],
+  "social": {"closeFriends": ["经常组队的队友"], "activeTopics": ["常讨论的游戏"], "roleInGroup": "群内游戏水平定位"},
+  "summary": {"short": "", "detailed": ""}
+}
+
+关注：
+1. 游戏技术成长和段位变化
+2. 常用英雄/角色的演变
+3. 游戏态度和团队协作风格
+4. 突出的游戏事件和成就`
+  },
+};
+
+// 预设选项（用于锅巴下拉菜单）
+const promptPresetOptions = Object.entries(MEMORY_PROMPT_PRESETS).map(([key, preset]) => ({
+  label: `${preset.name} - ${preset.description}`,
+  value: key
+}));
+
+// ----------------------------------------------------
+
 export function supportGuoba() {
   // /** 群列表（每个Bot-qq单独设置） */
   // let groupList_botUni = Array.from(Bot.gl.values())
@@ -1078,6 +1347,12 @@ export function supportGuoba() {
                 bottomHelpMessage: "开启后会转发思考过程，如果开启图片对话模式，则需要开启发送合并消息",
               },
               {
+                field: "forwardReference",
+                label: "转发参考链接",
+                component: "Switch",
+                bottomHelpMessage: "开启后，若该接口触发了联网搜索，将独立转发参考链接信息卡片",
+              },
+              {
                 field: "useContext",
                 label: "上下文功能",
                 component: "Switch",
@@ -1259,6 +1534,18 @@ export function supportGuoba() {
           field: "ss_forwardThinking",
           label: "[#ss]转发思考",
           bottomHelpMessage: "是否转发思考过程",
+          component: "Switch",
+        },
+        {
+          field: "ss_forwardReference",
+          label: "[#ss]转发参考链接",
+          bottomHelpMessage: "是否在触发联网搜索时，独立转发参考链接信息卡片",
+          component: "Switch",
+        },
+        {
+          field: "ss_debugLog",
+          label: "[#ss]调试日志",
+          bottomHelpMessage: "开启后会在 Yunzai 控制台输出完整的 API 请求和响应抓包日志，用于排查问题",
           component: "Switch",
         },
         {
@@ -1667,7 +1954,7 @@ export function supportGuoba() {
         },
         {
           field: "groupSayHello.allowGroups",
-          label: "🍓群单独设置",
+          label: "🥝群单独设置",
           bottomHelpMessage: "填写允许自动打招呼的群号列表，留空则不在任何群打招呼；可在群内使用 #自动打招呼开启/关闭 来管理",
           component: "GSubForm",
           componentProps: {
@@ -1739,19 +2026,217 @@ export function supportGuoba() {
           },
         },
         {
+          label: '戳一戳互动配置',
+          component: 'Divider'
+        },
+        {
+          field: 'pokeConfig.enable',
+          label: '启用戳一戳',
+          bottomHelpMessage: '开启后机器人被戳时会根据以下概率触发互动。修改后立即生效。',
+          component: 'Switch'
+        },
+        {
+          field: 'pokeConfig.reply_text_prob',
+          label: '文字回复概率',
+          bottomHelpMessage: '范围 0~1。各项概率总和请小于等于1，剩余的概率将触发“反戳回去”。',
+          component: 'InputNumber',
+          componentProps: { min: 0, max: 1, step: 0.01 }
+        },
+        {
+          field: 'pokeConfig.reply_img_prob',
+          label: '图片回复概率',
+          bottomHelpMessage: '触发时将从“自动保存的表情包”以及“手动上传的共享图片目录”中随机抽选发送。',
+          component: 'InputNumber',
+          componentProps: { min: 0, max: 1, step: 0.01 }
+        },
+        {
+          field: 'pokeConfig.mutepick_prob',
+          label: '禁言概率',
+          bottomHelpMessage: '触发禁言的概率。机器人需具备管理员权限。',
+          component: 'InputNumber',
+          componentProps: { min: 0, max: 1, step: 0.01 }
+        },
+        {
+          field: 'pokeConfig.mute_duration',
+          label: '禁言时长 (秒)',
+          bottomHelpMessage: '触发禁言时的惩罚时间',
+          component: 'InputNumber',
+          componentProps: { min: 1, step: 1 }
+        },
+        {
+          field: 'pokeConfig.word_list',
+          label: '文字回复列表',
+          bottomHelpMessage: '触发文字回复时随机抽取一条发送。请每行填写一条回复语。',
+          component: 'InputTextArea',
+          componentProps: {
+            rows: 6,
+            placeholder: '不要再戳了！\n救命啊，有变态>_<！！！\n你戳谁呢！\n再戳禁言你哦！'
+          }
+        },
+        {
+          label: '表情回应配置',
+          component: 'Divider'
+        },
+        {
+          field: 'emojiReaction.enable',
+          label: '启用表情回应',
+          bottomHelpMessage: '开启后，当用户发送表情时，Bot会自动用表情回应该消息（NapCat等协议支持）；更改后重启生效；指令：#表情回应[开启/关闭/状态/设置]',
+          component: 'Switch'
+        },
+        {
+          field: 'emojiReaction.emojiId',
+          label: '回应表情ID',
+          bottomHelpMessage: '设置Bot回应时使用的表情ID。常用：74=爱心❤️，76=笑哭😂，179=点赞👍，176=搜索🔍，307=玫瑰🌹，326=庆祝🎉；在 https://github.com/klarkxy/qqface 可查看表情ID对照表',
+          component: 'Input',
+          componentProps: {
+            placeholder: '74'
+          }
+        },
+        {
+          field: 'emojiReaction.useSameEmoji',
+          label: '使用相同表情回应',
+          bottomHelpMessage: '开启后，Bot会使用用户发送的相同表情进行回应（覆盖上面的固定表情ID设置）',
+          component: 'Switch'
+        },
+        {
+          field: 'emojiReaction.reactToAllEmojis',
+          label: '回应所有表情',
+          bottomHelpMessage: '同表情模式下，如果消息包含多个表情，是否全部回应（关闭则只回应第一个）',
+          component: 'Switch'
+        },
+        {
+          field: 'emojiReaction.globalEnabled',
+          label: '全局默认开启',
+          bottomHelpMessage: '对没有个人设置的用户，默认是否开启表情回应。用户可通过 #开启/关闭我的表情回应 覆盖此设置',
+          component: 'Switch'
+        },
+        {
+          field: 'emojiReaction.cooldown',
+          label: '冷却时间（秒）',
+          bottomHelpMessage: '同一用户在冷却时间内多次发送表情，只回应一次，防止刷屏',
+          component: 'InputNumber',
+          componentProps: {
+            min: 0,
+            max: 300,
+            step: 1,
+            placeholder: '5'
+          }
+        },
+        {
+          field: 'emojiReaction.onlyGroups',
+          label: '生效群聊',
+          bottomHelpMessage: '仅在这些群中生效（留空则全局生效）；可用指令 #表情回应设置本群 快速添加当前群',
+          component: 'Select',
+          componentProps: {
+            allowAdd: true,
+            allowDel: true,
+            mode: 'multiple',
+            options: groupList_total
+          }
+        },
+        {
           label: '群自动表情包配置',
           component: 'Divider'
         },
         {
           field: 'autoEmoticons.useEmojiSave',
           label: '启用表情保存',
-          bottomHelpMessage: '是否启用表情保存/偷取/发送；更改后重启生效；自动偷取保存并发送表情包目录： /data/autoEmoticons/emoji_save/群号/ ； 手动下载自定义表情包目录（支持子文件夹）： /data/autoEmoticons/PaimonChuoYiChouPictures/ ；群单独指令：#哒咩 #自动表情包[开启|关闭] #表情包配置',
+          bottomHelpMessage: '是否启用表情保存/偷取/发送；更改后重启生效；会自动发送保存在 /data/autoEmoticons/emoji_save/群号/ 和 /data/autoEmoticons/PaimonChuoYiChouPictures/ 目录下的表情包；群单独指令：#哒咩 #自动表情包[开启|关闭] #表情包配置',
           component: 'Switch'
+        },
+        {
+          field: 'autoEmoticons.timeRestrictionEnabled',
+          label: '启用时间限制',
+          bottomHelpMessage: '开启后，机器人仅在指定的活跃时间内发送表情包，防止半夜"闹鬼"',
+          component: 'Switch'
+        },
+        {
+          field: 'autoEmoticons.activeStartTime',
+          label: '活跃开始时间',
+          bottomHelpMessage: '格式：HH:mm，例如：08:00',
+          component: 'Input',
+          componentProps: {
+            placeholder: '08:00',
+          }
+        },
+        {
+          field: 'autoEmoticons.activeEndTime',
+          label: '活跃结束时间',
+          bottomHelpMessage: '格式：HH:mm，例如：23:00（支持跨夜，如 22:00 到 06:00）',
+          component: 'Input',
+          componentProps: {
+            placeholder: '23:00',
+          }
+        },
+        {
+          field: 'autoEmoticons.timeRestrictionEnabled',
+          label: '启用时间限制',
+          bottomHelpMessage: '开启后，机器人仅在指定的活跃时间内发送表情包，防止半夜“闹鬼”',
+          component: 'Switch'
+        },
+        {
+          field: 'autoEmoticons.activeStartTime',
+          label: '活跃开始时间',
+          bottomHelpMessage: '格式：HH:mm，例如：08:00',
+          component: 'Input',
+          componentProps: {
+            placeholder: '08:00',
+          }
+        },
+        {
+          field: 'autoEmoticons.activeEndTime',
+          label: '活跃结束时间',
+          bottomHelpMessage: '格式：HH:mm，例如：23:00（支持跨夜，如 22:00 到 06:00）',
+          component: 'Input',
+          componentProps: {
+            placeholder: '23:00',
+          }
+        },
+        {
+          field: 'autoEmoticons.confirmCount',
+          label: '表情确认次数',
+          bottomHelpMessage: '在记录时间内接收多少次才保存表情包',
+          component: 'InputNumber',
+          componentProps: {
+            min: 0,
+            step: 1
+          }
+        },
+        {
+          field: 'autoEmoticons.replyRate',
+          label: '发送表情概率',
+          bottomHelpMessage: '发送偷取表情的概率',
+          component: 'InputNumber',
+          componentProps: {
+            min: 0,
+            max: 1,
+            step: 0.01
+          }
+        },
+        {
+          field: 'autoEmoticons.sendCD',
+          label: '发送表情冷却时间',
+          bottomHelpMessage: '发送表情的冷却时间（秒）',
+          component: 'InputNumber',
+          componentProps: {
+            min: 1,
+            step: 1
+          }
+        },
+        {
+          field: 'autoEmoticons.maxEmojiCount',
+          label: '表情包最大数量',
+          bottomHelpMessage: '每个群最大的表情包储存数量，储存在 data/autoEmoticons/emoji_save/ 文件夹下',
+          component: 'InputNumber',
+          componentProps: {
+            min: 0,
+            step: 1
+          }
         },
         {
           field: 'autoEmoticons.maxEmojiSize',
           label: '表情大小限制',
-          bottomHelpMessage: '表情包文件大小限制 (MB)，全局生效',
+          bottomHelpMessage: '表情包文件大小限制 (MB)',
           component: 'InputNumber',
           componentProps: {
             min: 0,
@@ -1760,67 +2245,14 @@ export function supportGuoba() {
         },
         {
           field: 'autoEmoticons.allowGroups',
-          label: '🍓群单独设置',
-          bottomHelpMessage: '填写需要保存和发送表情包的群号，每个群可单独配置参数；（推荐设置该选项，设置后支持定时发送表情包，否则只能通过群内消息概率触发）；也可在群内使用 #自动表情包开启/关闭',
-          component: 'GSubForm',
+          label: '表情包白名单群',
+          bottomHelpMessage: '需要保存和发送表情包的群号列表，为空数组时表示所有群；（推荐设置该选项，设置后支持无触发自动发送表情包，否则只能接受任意信息后概率触发表情包）',
+          component: 'Select',
           componentProps: {
-            multiple: true,
-            schemas: [
-              {
-                field: 'groupId',
-                label: '群号',
-                required: true,
-                bottomHelpMessage: '需要启用表情包功能的群号',
-                component: 'Input',
-              },
-              {
-                field: 'switchOn',
-                label: '开启自动表情包',
-                bottomHelpMessage: '开启或关闭该群的自动表情包',
-                component: 'Switch'
-              },
-              {
-                field: 'replyRate',
-                label: '发送表情概率',
-                bottomHelpMessage: '每次触发时发送偷取表情的概率（0~1）；每5分钟判断一次是否触发 与 每次接受到消息后是否触发；默认0.05',
-                component: 'InputNumber',
-                componentProps: {
-                  min: 0,
-                  max: 1,
-                  step: 0.001
-                }
-              },
-              {
-                field: 'sendCD',
-                label: '发送冷却时间(秒)',
-                bottomHelpMessage: '本群发送表情后的冷却时间（秒），默认299秒',
-                component: 'InputNumber',
-                componentProps: {
-                  min: 1,
-                  step: 1
-                }
-              },
-              {
-                field: 'confirmCount',
-                label: '表情确认次数',
-                bottomHelpMessage: '在记录时间内收到多少次同一图片才保存为表情包，默认3次',
-                component: 'InputNumber',
-                componentProps: {
-                  min: 1,
-                  step: 1
-                }
-              },
-              {
-                field: 'maxEmojiCount',
-                label: '表情包最大数量',
-                bottomHelpMessage: '本群最多保存多少个表情包，超出后随机删除旧表情，默认100',
-                component: 'InputNumber',
-                componentProps: {
-                  min: 1,
-                  step: 10
-                }
-              },
-            ]
+            allowAdd: true,
+            allowDel: true,
+            mode: 'multiple',
+            options: groupList_total
           }
         },
         {
@@ -2051,6 +2483,530 @@ export function supportGuoba() {
           component: "InputPassword",
           componentProps: {
             placeholder: "请输入访问密码",
+          },
+        },
+        {
+          label: '智能模式',
+          component: 'SOFT_GROUP_BEGIN'
+        },
+        {
+          component: "Divider",
+          label: "智能接口池",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          field: "smartMode.proxy.url",
+          label: "代理服务器",
+          bottomHelpMessage: "配置 HTTP 或 SOCKS5 代理服务器，用于访问被限制的 AI 接口。留空则不使用代理。",
+          component: "Input",
+          componentProps: {
+            placeholder: 'socks5://127.0.0.1:7890',
+          },
+        },
+        {
+          field: "smart_APIList",
+          label: "接口列表",
+          bottomHelpMessage: "在这里新增或管理你的 AI 接口。⚠️ 新增并【保存】后，请【刷新当前网页】，即可在下方的下拉菜单中选用新接口。",
+          component: "GSubForm",
+          componentProps: {
+            multiple: true,
+            schemas: [
+              {
+                field: "remark",
+                label: "标识名(必填)",
+                component: "Input"
+              },
+              {
+                field: "format",
+                label: "接口格式",
+                component: "Select",
+                componentProps: {
+                  options: [
+                    { label: "OpenAI", value: "OpenAI" },
+                    { label: "Gemini", value: "Gemini" }
+                  ]
+                }
+              },
+              {
+                field: "baseUrl",
+                label: "接口地址",
+                component: "Input",
+                componentProps: {
+                  placeholder: 'https://api.siliconflow.cn/v1',
+                },
+              },
+              {
+                field: "apiKey",
+                label: "API密钥",
+                component: "InputPassword",
+                bottomHelpMessage: "如果留空，将自动使用上方配置的 sf_keys",
+              },
+              {
+                field: "modelId",
+                label: "模型名称",
+                component: "Input",
+                bottomHelpMessage: "填入模型在对应平台上的标准ID。⚠️ 注意：作为后台智能任务时，最好使用带有 Instruct 或 Chat 后缀的指令模型！",
+                componentProps: {
+                  placeholder: '例如: Qwen/Qwen2.5-7B-Instruct',
+                },
+              },
+              {
+                field: "useProxy",
+                label: "启用代理",
+                component: "Switch",
+                bottomHelpMessage: "是否使用上方配置的代理服务器访问此接口。默认关闭。",
+              }
+            ]
+          }
+        },
+        {
+          component: "Divider",
+          label: "🧠 结构化记忆系统",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          field: "smartMode.memory.enable",
+          label: "启用记忆收集",
+          bottomHelpMessage: "开启后会在后台静默收集群友发言，并提取用户画像永久保存。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.memory.injectToChat",
+          label: "对话中注入记忆",
+          bottomHelpMessage: "开启后，AI对话时会自动注入对方的记忆信息，让回复更个性化。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.memory.logEnable",
+          label: "收集器日志输出",
+          bottomHelpMessage: "开启后，每次成功拦截并缓存群友发言时，会在控制台打印日志。日常使用建议关闭以防刷屏。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.memory.debugLog",
+          label: "API调试日志",
+          bottomHelpMessage: "开启后会在控制台打印发送给大模型的完整结构体，以及模型返回的原始JSON。专用于排查提炼报错或内容被截断的问题。",
+          component: "Switch",
+        },
+        {
+          field: 'smartMode.memory.groupList',
+          label: '生效群聊(白名单)',
+          bottomHelpMessage: '仅在选中的群聊中开启记忆收集与提炼。留空则在所有群生效。',
+          component: 'Select',
+          componentProps: {
+            allowAdd: true,
+            allowDel: true,
+            mode: 'multiple',
+            options: groupList_total
+          }
+        },
+        {
+          field: 'smartMode.memory.blackList',
+          label: '用户黑名单',
+          bottomHelpMessage: '填入不需要收集记忆的QQ号（如其他机器人、不想被收集的用户）。回车添加。',
+          component: 'GTags',
+          componentProps: {
+            placeholder: '输入QQ号并回车',
+            allowAdd: true,
+            allowDel: true,
+          }
+        },
+        {
+          component: "Divider",
+          label: "模型配置",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          field: "smartMode.memory.selectedModel",
+          label: "日常提炼模型（小）",
+          bottomHelpMessage: "💡 提炼记忆是高频后台任务，推荐使用免费/便宜的 7B~32B 级别模型（如 Qwen2.5-7B-Instruct）。注：为节省天价 Token，插件会自动将群友发送的图片/表情转化为 [发送了一张图片] 文本占位符，普通文本模型即可完美处理，无需强上视觉模型！",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
+          },
+        },
+        {
+          field: "smartMode.memory.syncModel",
+          label: "历史同步模型（大）",
+          bottomHelpMessage: "用于 #同步历史记忆 指令。由于要一次性处理成百上千条记录，必须选择支持超大上下文的高智商模型（如 Gemini-Flash, DeepSeek）。",
+          component: "Select",
+          componentProps: { options: smartModelOptions },
+        },
+        {
+          field: "smartMode.memory.syncDays",
+          label: "历史同步天数",
+          bottomHelpMessage: "设置每次同步拉取过去几天的聊天记录（天数越多，消耗的 Token 越大）",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 30, step: 1, defaultValue: 3 },
+        },
+        {
+          component: "Divider",
+          label: "自动提炼配置",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          field: "smartMode.memory.autoExtract.enable",
+          label: "启用自动提炼",
+          bottomHelpMessage: "开启后，当缓冲区消息达到阈值时会自动触发记忆提炼（无需手动#提取记忆）。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.memory.autoExtract.threshold",
+          label: "自动提炼阈值",
+          bottomHelpMessage: "缓冲区达到多少条消息时自动触发提炼。建议值：5-15条。",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 50, step: 1, defaultValue: 10 },
+        },
+        {
+          field: "smartMode.memory.autoExtract.minInterval",
+          label: "自动提炼间隔(秒)",
+          bottomHelpMessage: "两次自动提炼的最小间隔，防止频繁调用API。建议值：1800-7200秒（30分钟-2小时）。",
+          component: "InputNumber",
+          componentProps: { min: 60, max: 86400, step: 60, defaultValue: 3600 },
+        },
+        {
+          field: "smartMode.memory.autoExtract.maxBufferSize",
+          label: "缓冲区最大条数",
+          bottomHelpMessage: "缓冲区最多保留多少条消息，超过后会自动丢弃旧消息。建议值：20-50条。",
+          component: "InputNumber",
+          componentProps: { min: 10, max: 100, step: 5, defaultValue: 30 },
+        },
+        {
+          field: "smartMode.memory.autoExtract.bufferExpireDays",
+          label: "缓冲区过期天数",
+          bottomHelpMessage: "缓冲区消息保留多少天后自动删除。建议值：7天。",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 30, step: 1, defaultValue: 7 },
+        },
+        {
+          component: "Divider",
+          label: "记忆整合策略",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          field: "smartMode.memory.consolidation.similarityThreshold",
+          label: "相似度阈值",
+          bottomHelpMessage: "用于事实去重，当两个事实的相似度超过此阈值时视为重复。建议值：0.8-0.9。",
+          component: "InputNumber",
+          componentProps: { min: 0.5, max: 1, step: 0.05, defaultValue: 0.85 },
+        },
+        {
+          field: "smartMode.memory.consolidation.maxFactsPerCategory",
+          label: "每类最大事实数",
+          bottomHelpMessage: "每个类别最多保留多少条事实，超过后会删除旧的/低置信度的。建议值：10-30。",
+          component: "InputNumber",
+          componentProps: { min: 5, max: 100, step: 5, defaultValue: 20 },
+        },
+        {
+          field: "smartMode.memory.consolidation.confidenceThreshold",
+          label: "最低置信度",
+          bottomHelpMessage: "低于此置信度的事实会被自动清理。建议值：0.3-0.5。",
+          component: "InputNumber",
+          componentProps: { min: 0, max: 1, step: 0.1, defaultValue: 0.3 },
+        },
+        {
+          field: "smartMode.memory.consolidation.retentionDays",
+          label: "事实保留天数",
+          bottomHelpMessage: "事实最多保留多少天，0表示永久保留。建议值：30-90天。",
+          component: "InputNumber",
+          componentProps: { min: 0, max: 365, step: 1, defaultValue: 90 },
+        },
+        {
+          field: "smartMode.memory.consolidation.mergeStrategy",
+          label: "冲突解决策略",
+          bottomHelpMessage: "当新旧事实冲突时的处理策略。newer=新信息优先，higher=高置信度优先。",
+          component: "Select",
+          componentProps: {
+            options: [
+              { label: "新信息优先", value: "newer" },
+              { label: "高置信度优先", value: "higher" }
+            ],
+            defaultValue: "newer"
+          },
+        },
+        {
+          component: "Divider",
+          label: "提示词配置（高级）",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          field: "smartMode.memory.promptPreset",
+          label: "提示词预设",
+          bottomHelpMessage: "选择适合你群聊类型的提示词预设。选择后下面的提示词会自动填充，也可以在此基础上自定义修改。",
+          component: "Select",
+          componentProps: {
+            options: promptPresetOptions,
+          },
+        },
+        {
+          field: "smartMode.memory.structuredPrompt",
+          label: "日常提炼提示词（自定义）",
+          bottomHelpMessage: "指导模型输出JSON格式结构化记忆的提示词。选择上方预设会自动填充，也可手动编辑自定义。",
+          component: "InputTextArea",
+          componentProps: {
+            rows: 12,
+            placeholder: "选择上方预设或输入自定义提示词..."
+          }
+        },
+        {
+          field: "smartMode.memory.syncPromptPreset",
+          label: "历史同步提示词预设",
+          bottomHelpMessage: "选择适合的历史同步预设。历史同步用于 #同步历史记忆 指令，会深度分析用户多天记录生成完整画像。",
+          component: "Select",
+          componentProps: {
+            options: promptPresetOptions,
+          },
+        },
+        {
+          field: "smartMode.memory.syncPrompt",
+          label: "历史同步提示词（自定义）",
+          bottomHelpMessage: "指导大模型进行深度历史分析的提示词。选择上方【历史同步提示词预设】会自动填充，也可手动编辑自定义。",
+          component: "InputTextArea",
+          componentProps: {
+            rows: 12,
+            placeholder: "选择上方预设或输入自定义提示词..."
+          }
+        },
+        {
+          component: "Divider",
+          label: "🛠️ 工具配置 (Tool Calling)",
+          componentProps: { orientation: "left", plain: true },
+        },
+        {
+          field: "smartMode.tools.enable",
+          label: "启用工具调用",
+          bottomHelpMessage: "开启后AI可以根据用户意图自动调用工具（戳一戳、点赞、禁言等）。",
+          component: "Switch",
+        },
+        {
+          field: 'smartMode.tools.groupList',
+          label: '工具生效群聊',
+          bottomHelpMessage: '仅在选中的群聊中启用工具调用。留空则在所有群生效。',
+          component: 'Select',
+          componentProps: {
+            allowAdd: true,
+            allowDel: true,
+            mode: 'multiple',
+            options: groupList_total
+          }
+        },
+        {
+          field: "smartMode.tools.debugLog",
+          label: "工具调用详细日志",
+          bottomHelpMessage: "开启后会在控制台输出工具调用的详细信息（请求参数、返回结果等），仅用于调试。",
+          component: "Switch",
+        },
+        {
+          component: 'Divider',
+          label: '功能分类模型配置（可选）',
+          componentProps: {
+            orientation: 'left',
+            plain: true,
+          },
+        },
+        {
+          field: "smartMode.tools.models.toolCallModel",
+          label: "🛠️ 工具调用模型",
+          bottomHelpMessage: "用于判断是否需要调用工具的模型。必须支持 Function Calling（如 GPT-4、Qwen2.5、DeepSeek）。留空则使用当前对话模型。",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
+            placeholder: '使用当前对话模型',
+          },
+        },
+        {
+          field: "smartMode.tools.models.visionModel",
+          label: "👁️ 视觉理解模型",
+          bottomHelpMessage: "用于理解图片内容的模型。需要视觉能力（如 GPT-4V、Gemini Pro Vision、Qwen-VL）。留空则使用当前对话模型。",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
+            placeholder: '使用当前对话模型',
+          },
+        },
+        {
+          field: "smartMode.tools.models.drawingModel",
+          label: "🎨 AI绘图模型",
+          bottomHelpMessage: "用于生成图片的模型。需要文生图能力（如 DALL-E、Stable Diffusion、Midjourney）。留空则使用 SiliconFlow 画图配置。",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
+            placeholder: '使用 SF 画图配置',
+          },
+        },
+        {
+          field: "smartMode.tools.models.searchModel",
+          label: "🔍 搜索增强模型",
+          bottomHelpMessage: "用于处理搜索结果的模型。建议选择擅长长文本处理的模型。留空则使用当前对话模型。",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
+            placeholder: '使用当前对话模型',
+          },
+        },
+        {
+          field: "smartMode.tools.models.chatModel",
+          label: "💬 对话生成模型",
+          bottomHelpMessage: "用于生成最终回复的模型。这是用户看到的主要回复，建议选择对话流畅的模型。留空则使用当前对话模型。",
+          component: "Select",
+          componentProps: {
+            options: smartModelOptions,
+            placeholder: '使用当前对话模型',
+          },
+        },
+        {
+          component: 'Divider',
+          componentProps: {
+            orientation: 'left',
+            plain: true,
+          },
+        },
+        {
+          field: "smartMode.tools.enabledTools",
+          label: "启用的工具",
+          bottomHelpMessage: "选择要启用的工具，推荐根据群聊实际需求选择。工具越多，AI判断开销越大。",
+          component: "Select",
+          componentProps: {
+            mode: 'multiple',
+            options: [
+              { label: "🤏 戳一戳", value: "pokeTool" },
+              { label: "👍 点赞", value: "likeTool" },
+              { label: "🗑️ 撤回消息", value: "recallTool" },
+              { label: "🚫 禁言/解禁", value: "muteTool" },
+              { label: "👤 查询成员信息", value: "memberInfoTool" },
+              { label: "🔍 网络搜索", value: "searchTool" },
+              { label: "🖼️ 图片搜索", value: "imageSearchTool" },
+              { label: "🎵 音乐搜索", value: "musicTool" },
+              { label: "🌤️ 天气查询", value: "weatherTool" },
+              { label: "🌐 翻译", value: "translateTool" },
+              { label: "🔗 网页解析", value: "webParserTool" },
+              { label: "⏰ 定时提醒", value: "reminderTool" },
+              { label: "🎨 AI绘图", value: "drawTool" },
+              { label: "💬 聊天历史", value: "chatHistoryTool" }
+            ]
+          },
+        },
+        {
+          field: "smartMode.tools.maxToolRounds",
+          label: "最大工具调用轮数",
+          bottomHelpMessage: "单次对话中最多进行几轮工具调用。设置过大可能导致对话时间过长。",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 10, step: 1, defaultValue: 5 },
+        },
+        {
+          component: 'Divider',
+          label: '搜索工具配置',
+          componentProps: { orientation: 'left', plain: true },
+        },
+        {
+          field: "smartMode.tools.searchConfig.maxKeywords",
+          label: "最大关键词数",
+          bottomHelpMessage: "单次搜索最多使用几个关键词。多个关键词可获取更全面信息，但会增加 Token 消耗。推荐：3",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 5, step: 1, defaultValue: 3 },
+        },
+        {
+          field: "smartMode.tools.searchConfig.maxResults",
+          label: "每关键词结果数",
+          bottomHelpMessage: "每个关键词返回几条搜索结果。推荐：3",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 10, step: 1, defaultValue: 3 },
+        },
+        {
+          field: "smartMode.tools.searchConfig.maxTotalResults",
+          label: "总计最大结果数",
+          bottomHelpMessage: "单次搜索总计最多返回几条结果（去重后）。推荐：10",
+          component: "InputNumber",
+          componentProps: { min: 5, max: 20, step: 1, defaultValue: 10 },
+        },
+        {
+          field: "smartMode.tools.searchConfig.maxRounds",
+          label: "搜索轮数",
+          bottomHelpMessage: "进行几轮搜索（使用不同引擎或时间间隔）。增加轮数可提升全面性但耗时更长。推荐：1",
+          component: "InputNumber",
+          componentProps: { min: 1, max: 3, step: 1, defaultValue: 1 },
+        },
+        {
+          field: "smartMode.tools.searchConfig.searxngUrl",
+          label: "SearXNG 地址",
+          bottomHelpMessage: "可选：自建 SearXNG 实例地址（如 https://searx.example.com），提供更稳定的搜索。留空使用 DuckDuckGo。",
+          component: "Input",
+          componentProps: { placeholder: 'https://searx.example.com' },
+        },
+        {
+          field: "smartMode.tools.searchConfig.forwardReference",
+          label: "转发搜索来源",
+          bottomHelpMessage: "开启后，搜索结果链接会以转发消息（合并消息）形式发送，避免刷屏且更美观。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.searchConfig.showThinkingTip",
+          label: "显示搜索提示",
+          bottomHelpMessage: "搜索前是否发送提示消息（如'派蒙帮你去搜索一下哦'）。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.searchConfig.thinkingTipMsg",
+          label: "搜索提示语",
+          bottomHelpMessage: "搜索前发送的提示消息内容。",
+          component: "Input",
+          componentProps: { placeholder: '派蒙帮你去搜索一下哦，稍等片刻~' },
+        },
+        {
+          field: "smartMode.tools.searchConfig.useEmojiReaction",
+          label: "使用表情回应",
+          bottomHelpMessage: "NapCat等协议支持的表情回应功能。开启后搜索时会用表情回应原消息表示思考中。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.searchConfig.thinkingEmoji",
+          label: "思考表情ID",
+          bottomHelpMessage: "搜索时使用的表情ID。NapCat 可用 176（搜索/思考表情），其他协议请参考对应文档。",
+          component: "Input",
+          componentProps: { placeholder: '176' },
+        },
+        {
+          component: 'Divider',
+          label: '图片搜索配置',
+          componentProps: { orientation: 'left', plain: true },
+        },
+        {
+          field: "smartMode.tools.imageSearchConfig.defaultSource",
+          label: "默认图片来源",
+          bottomHelpMessage: "图片搜索的默认来源。auto=自动判断（含二次元/动漫词自动使用 Pixiv），bing=必应，pixiv=Pixiv。",
+          component: "Select",
+          componentProps: {
+            options: [
+              { label: "🔄 自动判断", value: "auto" },
+              { label: "🔍 必应", value: "bing" },
+              { label: "🎨 Pixiv", value: "pixiv" },
+            ]
+          },
+        },
+        {
+          field: "smartMode.tools.imageSearchConfig.pixivR18",
+          label: "允许 Pixiv R18",
+          bottomHelpMessage: "是否允许搜索 Pixiv R18 内容（需要群聊环境合适且符合法律法规）。默认关闭。",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.imageSearchConfig.pixivProxy",
+          label: "Pixiv 图片代理",
+          bottomHelpMessage: "Pixiv 图片代理域名，用于国内访问。推荐：i.pixiv.re、pximg.nj1x.com、px2.rainchan.win",
+          component: "Input",
+          componentProps: { placeholder: 'i.pixiv.re' },
+        },
+        {
+          field: "smartMode.tools.imageSearchConfig.imageQuality",
+          label: "图片质量",
+          bottomHelpMessage: "选择发送图片的质量。原图=最高清但文件大速度慢，中等=推荐，小图=速度最快",
+          component: "Select",
+          componentProps: {
+            options: [
+              { label: "🖼️ 原图 (original)", value: "original" },
+              { label: "✨ 中等 (master)", value: "master" },
+              { label: "🚀 小图 (small)", value: "small" },
+            ]
           },
         },
         {

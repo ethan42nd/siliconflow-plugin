@@ -568,6 +568,21 @@ class Config {
         existingRemarks.add(fileName)
       }
     }
+
+    // 检查 smart_APIList (智能模式接口池)
+    if (config.smart_APIList && Array.isArray(config.smart_APIList)) {
+      for (const api of config.smart_APIList) {
+        if (!api.remark) {
+          throw new Error('智能模式接口 缺少 标识名(remark)')
+        }
+        // 替换特殊字符以防止文件名冲突
+        const fileName = `smart_${api.remark.replace(/\\|\/|:|\*|\?|\"|<|>|\||\.$/g, '_')}`
+        if (existingRemarks.has(fileName)) {
+          throw new Error(`智能模式接口配置的标识名"${api.remark}"重复`)
+        }
+        existingRemarks.add(fileName)
+      }
+    }
   }
 
   /** 随机轮询字符串中英文逗号分割 */

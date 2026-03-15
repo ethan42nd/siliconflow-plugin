@@ -50,6 +50,8 @@ ss_mustReturnImgRetriesTimes: 0 # 必须返回图片
 ss_groupContextLength: 0 # 读取近期群聊天记录条数
 ss_quoteMessage: true # 是否引用原消息
 ss_forwardThinking: false # 是否转发思考过程
+ss_forwardReference: true # 是否转发参考链接
+ss_debugLog: false # 是否开启调试日志
 ss_isOnlyMaster: false # 默认配置是否仅限主人使用
 ss_enableImageUpload: true # 是否启用图片上传功能
 ss_APIList: [] # ss接口列表
@@ -84,7 +86,7 @@ kuaishouTV: true # 开启快手解析
 video_maxSizeMB: 50 # 抖音解析视频最大容量 MB
 turnOnBilitv: true # 开启bili解析
 switch_ChatCooldown: true # 不允许并发对话
-ggKey_free_250825: QUl6YVN5QzctdEZNdUx4X0NVbWc4dTR3SkRMZkVqbkdRSEtfNjdJLEFJemFTeUMtMW1SWEhwMDR1VWVPdFBBYmUyT0RpYXN0MHJGcXAtSSxBSXphU3lBVGo1SnppcG5GbHVSTlJiQUQ4ZDVqSG9uTkN5X0htdzQsQUl6YVN5Qk00UU0tOXhOUkdLLUZ6Tk90SlVCUmxKcXRqdUt1TGs4LEFJemFTeUJoZlhhVzFXOXJwOEstekdDSUZGTk54ejNCV1dUUGNqcyxBSXphU3lEVjduSWkyekdKTjdHMVVzYVZoUWlYLXhMdnVrZmYwN2csQUl6YVN5RFZEQTFGQ1JZeGRJbmtYUzBjbWNON1hLWVd1MEpISlNJLEFJemFTeUJPNkxTY0xjLWRONkJ5a2Rxam9BUE9qOVdtNF9hd09pQSxBSXphU3lCUTZiQndhSng0UUpEemtUeTNoOUtsRnppcTZ5ZlprRGcsQUl6YVN5Q0UtQ0hSTzNBRkF3VXBiOG12NVpNcVVWdE9MdEtnVVZJLEFJemFTeURIR3Q5N0d5REswZ0Y3RHlnQkRreFdIU2tYWlI3eGxIWSxBSXphU3lCYVAzNFJDakZhZTVINktFcnZLR3d2QWlyRjF3LUlLeGssQUl6YVN5RHljUlVob2ZzNjdpNGhPUGtFQk00akxRMl9CbnJ3ZjFNLEFJemFTeURpNHkxRU5EVjdrbHk4R2FQQVgzWUR0RjBmRnNvRU5SQSxBSXphU3lBamRYUmYyZjBNZEMzWTdDRDN2czBiZVIzcllYc3RyWnMsQUl6YVN5Q3kzUzVYV1VqVFRtTjJ3dzk5QXhaclJqS2hnTEZScUtjLEFJemFTeUNyT0tCMmJzRWhSSTEzdnBoc2dUX0hpbThZa3RXX1dVVSxBSXphU3lCTU5VZF9TNTF1R2gta09oNFZka19HRVRlb2dHSW1jencsQUl6YVN5QWgxMUZhc05tY0Y5cXU0blFMcGJtbGVFZm40bFlpcV9VLEFJemFTeUN4REJuLS0yRjRwZGkta3hBcjFEa0o5Nkp5eGZ6VU9WcyxBSXphU3lESFZKWTczdTItaXJqQ3o0aEpoX0xFUjk5X051SHdjYXMsQUl6YVN5QUFEd19hSXA2X2JKUEVwZGFqbDgwdFNaMzFTV3hSV2Y4LEFJemFTeURLWXIzY0dodHg5MjRIZlc3UExLQW11ZVV5dmpVRGNDSSxBSXphU3lBaGFqTWQyamhCVWZYUnVSVlhoQmJuQTVTZmlPc3Jfb1UsQUl6YVN5QWxpSjM1aHI4SlpxVUU3bkZhb00yVmQwbk03S0FFZUJ3LEFJemFTeUM3anBNREt6NmZtZnByZ18xbjM5X3lJejBTOWY3SUNvcyxBSXphU3lBVmVfMEd4NURHUktmbVpCb25Pck02VkxYMDVvVERTM3MsQUl6YVN5Q0hlczlYVnN6VjdZQ3U2emFNOXh3YUFtRnR1VEh6cFZnLEFJemFTeURwZy11RnlFQUdmSEVmajVINzBQZ3BvelItOHNENTBCMCxBSXphU3lDSlRPTE5WSFViWjhZejc0NVpCV0hOQVpVaV9SM19rSEksQUl6YVN5QVk0T01UV3VGbmNYclVvX1V3TVdKbGREYXkxeFZUbFdVLEFJemFTeUM0ZzE4NU15M242enNFWjFSbXZLN05WTzBMRHpZc0NaRSxBSXphU3lBaU5QLXh3SVJWNHVxM3BLN09SWTNpMUZ6TTlaLXpVTFUsQUl6YVN5QTZIeWVVZm5mQk8wZUV6N29zb3FCZDc2OWRNSUVPWHJ3LEFJemFTeUEwUktvWEdTYWlXM2lkbHozTEF4V2wtRXJZU2ZWVE5DcyxBSXphU3lCZ2Y0ZmlYLXNlVHBTelRrQm5VTURoMlcwcVlMY0p4dWcsQUl6YVN5QVl3bVF5eWRlWjgtNVVQZHV1QkI3X3o5S0pBSTNWcV9JLEFJemFTeUItRy1aNTlTMmFOMFY2NHVjZ1FsMVJYY2ZZUjkzSzRqYyxBSXphU3lDak5lMTVWOWZ6cjJlOHgyQ1UyTVVyZmZHaU1LNnR2ejQsQUl6YVN5QnRYNGt1eUh4bm5Wd1hsVDVmYUlnamZNRDVYQUlQcElZLEFJemFTeUI1dG4ySl9yS0F5N3lWa2syS3g5dy0tNVc4T2NhUUJMQSxBSXphU3lDZFktR19lUy1VQmJKaThZN0FNa2d4UVVaTUo1OVRhOGcsQUl6YVN5RE5FOVpkTEQ0cXZyM1J6Q2I2TWZnMG5JRE05aWhUblhJLEFJemFTeUMyVlQtOHdURHRHT1AwckJiT1pGcHExWi1seTdIbmxUQSxBSXphU3lCV3Y4ZENlU0Q4bE9vSmxIcFRPaF9GTGF3M3ZqOHdzRDQsQUl6YVN5QnByYTduT0IwZWNIZG9DcVpQa0NwMHFCa2QtTTRhN2d3LEFJemFTeUNxeUpFLTk3YlpodFZhd01hbzNZeW93OERpVVJTSU1oNCxBSXphU3lBLUNjUkpVM1VNSDdLVWJtbk5NcXdpNVlFWnc2NExib28sQUl6YVN5QnFqR2x4dEJSTF8wbVdLQWp5NmY5eDhnVlp2Q2lTX01nLEFJemFTeUQ3TlprZGo2OHBNQXZKeFdtMHFndW4yNVh3NFplS0F6MCxBSXphU3lDS0kxUUhiWWhpNFIxdVlzUS1WQi1QRFRjZ0RBbUlITGcsQUl6YVN5QlNRZmxEUU91eEJsX2lRQVhIaWVuUWVKVC1uVjJkNThzLEFJemFTeUMxdEI0ZGRZVndpVTc4SVpaampoM3Q0R1EtV2s1ZmdyTSxBSXphU3lCVmRCeDhqSVUtRGRFa040dGo0NkxMZldPeWJPZHcxc0UsQUl6YVN5RDBQY3BhcjJqY3YwSTJna1hRYll6S2R6ckk1QzhGWWdBLEFJemFTeURzVTdyM0RZWHhibXBxazhPY0MtNFJscjBGZ2hqNjVzayxBSXphU3lDak5PWHlnQnNDdUluYkFqbXU4OVhEakFmMS1ITHNYNVEsQUl6YVN5RDh2Ukwtc3FkTjAtT3Btd2p4SnJOcVROcnBjcGVrcUNFLEFJemFTeUNkT3VheDVOMld4UzlSREZiYmtTOGJqSzBVazlCbzNuYyxBSXphU3lDRjBySG90ei1ZTGxBT0ttY1paXzlLZDE4NXpMZlduSFEsQUl6YVN5QTZvSGZIaW4yb0VXMTJLUzV0WFctUkpoa1pUWHBZbnZNLEFJemFTeUNSLTBqb2NmZ28tSFlaWmJYM0g1MzZQTURZMXF2aDdQSSxBSXphU3lBeVZuLXBWMUU1UmZ1dVVoMXZOYTNERjVRbUJPOXBGSTQsQUl6YVN5Q0lUWlF6N0pyTzNxbkpXcnp2ZXl1T19lNE5JOE9BMUw4LEFJemFTeURXVXcyeU12SEpzU3JrRmhZb0ptdzVqYTZzU05tQS0xTSxBSXphU3lBN0VnczBGZ0xxR1V4bHY2UWt0M09VZWZvcWVqZF9pZmssQUl6YVN5RGpmWW1MOFNzWVltRVdzbnE2NkkwZnBTT2xmSUtaOGdNLEFJemFTeUFoUVhmNFhkWVh0YjhoMVNmNG9Ea3BkRXFlY0R4UHA5YyxBSXphU3lBUEd5bDVPcVJiMldTRHJNSGdGMnZsQjZlREFKbHhnaEUsQUl6YVN5Q1RlTG9nTEhVMmtKN3FnTWkxNGRoM2x1R0FwbGF4ejZJLEFJemFTeUJpb1d2TkRsa3dJeExFbkpOMUlwWC1KYTFKS0Y5UV93NCxBSXphU3lERUNNMVhoR0VqMjlrY3owekZpZTdLWFpyVXMxQUZuaE0sQUl6YVN5RGV5LVlIZFlYRnk2LUxtUTQ0cExja2RHcFFsZjFkZkFBLEFJemFTeUF5cmJfN0g4SGRyLTJCYzBfOHpzcll3Q3d5VjRZbE9RTSxBSXphU3lDbE5UeTc5ZzVRRkt0X3o4Vy1LLThFVzRFLXVpUHhlcUEsQUl6YVN5QVZkWGpJejBPbENpaEJZXzRubndMekpRZGlYbTRfWjNnLEFJemFTeURlMUxXY0FMRlFyVUVxcmtuVTV0UzZwVnFNNHFROVBrWSxBSXphU3lEN185aV9MRWlEQmp2NHpHWkcwZzJ0bnZfeXNvOXRoMVEsQUl6YVN5QnpXMWRWQVhieUtVVU1HX3JXTXIxQ21rV1ZYOGtFRmt3LEFJemFTeURWbTJuZ0ExcHQ0LTE5dXdhc2hlMHNFSDhmS2V1ejV5byxBSXphU3lCTHg1NXJDN2NlM2dib20xTHN4UWl4RzVleElzeTBJOE0sQUl6YVN5Qm03TTZVRXpQVTBwRS1zQW84S0lkVGc2SmpEU0ZDSm9NLEFJemFTeUJGZkZJX1UxbEVDNlIyeDQ2cUw5V2sxT29kZ3NUbEhzcyxBSXphU3lBeWpCUldtNnVZY0dnNEM2VXdnSEJHOTVPeGJQaFg4ZkUsQUl6YVN5QWhYR0FIcmRha2tmMzJnWU9mYUE5Y2lWR3NPUTV6cWE0LEFJemFTeUFpVkEtd1NmREY5WUF3VE93TlhaRlZZUmdOMVBvZEFNNCxBSXphU3lDbEt1Uko0dFJXM2V1SEJ0aUFBUkFDVDAzcHRMeTFDWVksQUl6YVN5QU1uMDRVVU5zanhuR3hHRnFqOHBhRHdiUGNoSENzSmtFLEFJemFTeUE0M2stN2Zja25RUjVybDNnampCcTNOMUF2UUdCZWtjWSxBSXphU3lBbjFZVEh4VVp5VlotQUd0dzdmemtiRFBFZUlta0Qzc3MsQUl6YVN5Q0cyaU95dmVQUEdndGFSbnpSNFItVGNRaDAzSU9YNFdJLEFJemFTeUJVT1ZiNmVxaXBjQVRRTmwycXRvcjZzYnlPNDB0b1k2NCxBSXphU3lEUUkxakVaaUFUbGVhcW1VZENONWZyZ0FJSUExS183WUUsQUl6YVN5Q2pFZEJvVWMyMGxXdkVOWjA5b1ZjejJ2V05qMkVydW5ZLEFJemFTeURPVVlpSjQxRHRNRFVKSVlsNnZUZXk3SzYyRzZhOTVZVSxBSXphU3lEa2lITnd5THlXYkNydVVmQmVtakVnVmtqX01rSk1XcFUsQUl6YVN5QnVUOHNhU2tlaXVkSkFEbzVtNUJKWmdxVVBYc205aU1jLEFJemFTeUFSaDhheWNMRlJ5cHdFaFNJUTNDdENkT1FTMEtWRlRVNCxBSXphU3lES2YyM1BtVTZLaFRtbnBJOXUxUy1PVlcwSVVyUVMtYUksQUl6YVN5Q2ozSWZDRTZkZ3hKQV9rd1pENjFkaDZGTGlpMUJZejdrLEFJemFTeUJ6UnFCR1d3R1h5NHR6anJhZGs3WERLa0h3UWhncVJSdyxBSXphU3lEVldrYkRsUHVSc1pBU0h3Y1NHSk4wV0FOdV9tbE1CMG8sQUl6YVN5RGpVMGNHRjBfUVdQSWRSRE9MX3hvLUtLMVZhY0FOdG9rLEFJemFTeUFlMTJPNXdCOW9JZlVDWGkzU20wTFFXN1R3VjNEMUVZWSxBSXphU3lDVFBtbUxlN3M4T1M3VmR1bHZFZkQyU0hTZWlVQzdybGssQUl6YVN5RHpad0xxRWtuX29MVTRzRExNQXlINFkzQUxGSGxWMk5RLEFJemFTeUNQUTk2V1BRNmJkTkVLMGVoRUxrMjloUmh2X3pZTmxUYyxBSXphU3lDR0FyRHdWd0MwN0JDSE5lSE4xSEZyaW44a2R5R29BcWcsQUl6YVN5RDFSTlFUZFF5Um5idHNFQll1SFUzSXVoSnY0UVlwbGNrLEFJemFTeUFsZ0hvVDRzWU5LdFViM1ZIMjUwTW9BVlRtUkRaRTFTayxBSXphU3lESDI0UXBFbnJLMEtXSU9IRTZNb24xZWw3VGF0enlqSEEsQUl6YVN5QmxEakpEUlAwWE1TLS1HTDloVEVtdHEybXp0UkhtbFJzLEFJemFTeUFfd0h6Vk1EeU5LX0NQd3pyLU1IdUVSYXM3NnJXRXhuSSxBSXphU3lBb2FJMVROS3F1MG1kOEw0aFB2dWcwWFVCTW80TFZvaFUsQUl6YVN5RDlGYVVXc3dwZ1B3UGNpYkc3dmRMeVluZGZ3OFdLZjBjLEFJemFTeUJFREUwQ0ZrNkVyODdxRGVlTXFxcTFDTWVuX0R3Wld3WSxBSXphU3lBMlM5ckw0SjF2blBvZExVaVo1d005WjQ2b3F2cUo4bjAsQUl6YVN5Q3Z6Qmk5eW1IUlJ6QldhMVZVSU56Tm1zWnk1d0pEdktZLEFJemFTeUFTSWE5YllBMkdXbkQtZGsyaC1DV0dMOHZsRkZGS2FsOCxBSXphU3lBT20yUXNrRTZMMGdud0J1WlQ2ckZuYUlpVWVpbW9VWTAsQUl6YVN5QkJzVWRrY2NvZVBrQXNhQTZrbTgtd0kweEUzd3dzR3F3LEFJemFTeUFtMjRBWHB4cWZocmRGdmY5VGRKS3NRTURCTUNvZDYwMCxBSXphU3lEMENMSk1mTUdsS1Myc2pSbUxCUk1jb21WVmZqc1JTbjQsQUl6YVN5QVhJY1pNd0dBWU54OTRHb0NSeDhva2NjM0dIblpCbEc4LEFJemFTeURNZTRhMjhlQ3k3ZFlYMnAzZmNnS241aWFjU29TN0R2dyxBSXphU3lEcTFrNnVRc3RkUU0ySjNVRVNTNGUtT1hkNDlUNG9JdXM=
+ggKey_free_250825: QUl6YVN5QzctdEZNdUx4X0NVbWc4dTR3SkRMZkVqbkdRSEtfNjdJLEFJemFTeUMtMW1SWEhwMDR1VWVPdFBBYmUyT0RpYXN0MHJGcXAtSSxBSXphU3lBVGo1SnppcG5GbHVSTlJiQUQ4ZDVqSG9uTkN5X0htdzQsQUl6YVN5Qk00UU0tOXhOUkdLLUZ6Tk90SlVCUmxKcXRqdUt1TGs4LEFJemFTeUJoZlhhVzFXOXJwOEstekdDSUZGTk54ejNCV1dUUGNqcyxBSXphU3lEVjduSWkyekdKTjdHMVVzYVZoUWlYLXhMdnVrZmYwN2csQUl6YVN5RFZEQTFGQ1JZeGRJbmtYUzBjbWNON1hLWVd1MEpISlNJLEFJemFTeUJPNkxTY0xjLWRONkJ5a2Rxam9BUE9qOVdtNF9hd09pQSxBSXphU3lCUTZiQndhSng0UUpEemtUeTNoOUtsRnppcTZ5ZlprRGcsQUl6YVN5Q0UtQ0hSTzNBRkF3VXBiOG12NVpNcVVWdE9MdEtnVVZJLEFJemFTeURIR3Q5N0d5REswZ0Y3RHlnQkRreFdIU2tYWlI3eGxIWSxBSXphU3lCYVAzNFJDakZhZTVINktFcnZLR3d2QWlyRjF3LUlLeGssQUl6YVN5RHljUlVob2ZzNjdpNGhPUGtFQk00akxRMl9CbnJ3ZjFNLEFJemFTeURpNHkxRU5EVjdrbHk4R2FQQVgzWUR0RjBmRnNvRU5SQSxBSXphU3lBamRYUmYyZjBNZEMzWTdDRDN2czBiZVIzcllYc3RyWnMsQUl6YVN5Q3kzUzVYV1VqVFRtTjJ3dzk5QXhaclJqS2hnTEZScUtjLEFJemFTeUNyT0tCMmJzRWhSSTEzdnBoc2dUX0hpbThZa3RXX1dVVSxBSXphU3lCTU5VZF9TNTF1R2gta09oNFZka19HRVRlb2dHSW1jencsQUl6YVN5QWgxMUZhc05tY0Y5cXU0blFMcGJtbGVFZm40bFlpcV9VLEFJemFTeUN4REJuLS0yRjRwZGkta3hBcjFEa0o5Nkp5eGZ6VU9WcyxBSXphU3lESFZKWTczdTItaXJqQ3o0aEpoX0xFUjk5X051SHdjYXMsQUl6YVN5QUFEd19hSXA2X2JKUEVwZGFqbDgwdFNaMzFTV3hSV2Y4LEFJemFTeURLWXIzY0dodHg5MjRIZlc3UExLQW11ZVV5dmpVRGNDSSxBSXphU3lBaGFqTWQyamhCVWZYUnVSVlhoQmJuQTVTZmlPc3Jfb1UsQUl6YVN5QWxpSjM1aHI4SlpxVUU3bkZhb00yVmQwbk03S0FFZUJ3LEFJemFTeUM3anBNREt6NmZtZnByZ18xbjM5X3lJejBTOWY3SUNvcyxBSXphU3lBVmVfMEd4NURHUktmbVpCb25Pck02VkxYMDVvVERTM3MsQUl6YVN5Q0hlczlYVnN6VjdZQ3U2emFNOXh3YUFtRnR1VEh6cFZnLEFJemFTeURwZy11RnlFQUdmSEVmajVINzBQZ3BvelItOHNENTBCMCxBSXphU3lDSlRPTE5WSFViWjhZejc0NVpCV0hOQVpVaV9SM19rSEksQUl6YVN5QVk0T01UV3VGbmNYclVvX1V3TVdKbGREYXkxeFZUbFdVLEFJemFTeUM0ZzE4NU15M242enNFWjFSbXZLN05WTzBMRHpZc0NaRSxBSXphU3lBaU5QLXh3SVJWNHVxM3BLN09SWTNpMUZ6TTlaLXpVTFUsQUl6YVN5QTZIeWVVZm5mQk8wZUV6N29zb3FCZDc2OWRNSUVPWHJ3LEFJemFTeUEwUktvWEdTYWlXM2lkbHozTEF4V2wtRXJZU2ZWVE5DcyxBSXphU3lCZ2Y0ZmlYLXNlVHBTelRrQm5VTURoMlcwcVlMY0p4dWcsQUl6YVN5QVl3bVF5eWRlWjgtNVVQZHV1QkI3X3o5S0pBSTNWcV9JLEFJe...
 ggReProxy: aHR0cHM6Ly9iLmdlbWluaXByb3h5LmdnZmYubmV0LGh0dHBzOi8vZC5nZW1pbmlwcm94eS5nZ2ZmLm5ldC9nZW1pbmksaHR0cHM6Ly9lLmdlbWluaXByb3h5LmdnZmYubmV0
 sf_cdtime: 0
 sf_dailyLimit: 0
@@ -103,6 +105,10 @@ autoEmoticons: {
     allowGroups: [],
     # BotQQ号
     getBotByQQ_targetQQArr: [],
+    # 生效时间限制相关
+    timeRestrictionEnabled: false,
+    activeStartTime: "08:00",
+    activeEndTime: "23:00",
     # 发送表情时的延迟 (毫秒)
     replyDelay: { min: 1000, max: 240000 },
   }
@@ -127,3 +133,211 @@ Doubao:
     onlyGroupID: [],
     contextExpiryHours: 24,
   }
+pokeConfig:
+  enable: false
+  reply_text_prob: 0.2
+  reply_img_prob: 0.5
+  mutepick_prob: 0
+  mute_duration: 60
+  word_list: "不要再戳了！\n救命啊，有变态>_<！！！\n你戳谁呢！你戳谁呢！！！o(´^｀)o\n不要再戳了！我真的要被你气死了！！！\n就你小子乱戳我，找打！"
+
+# 表情回应配置
+emojiReaction:
+  enable: false           # 是否启用表情回应功能
+  emojiId: "74"           # 回应使用的表情ID（74=爱心，76=笑哭，179=点赞，176=搜索/思考）
+  useSameEmoji: false     # 是否使用用户发送的相同表情进行回应
+  reactToAllEmojis: true  # 同表情模式下，是否回应消息中的所有表情（false=仅回应第一个）
+  cooldown: 5             # 冷却时间（秒），防止频繁回应
+  onlyGroups: []          # 仅在这些群生效（留空则全局生效）
+  globalEnabled: false    # 全局默认开启（对未设置的用户生效）
+
+# 智能模式专属后台接口池
+smart_APIList:
+  - remark: "默认-SF小模型"
+    format: "OpenAI"
+    baseUrl: "https://api.siliconflow.cn/v1"
+    apiKey: "" # 留空将自动从全局 sf_keys 抽取
+    modelId: "Qwen/Qwen2.5-7B-Instruct"
+    useProxy: false             # 是否使用代理访问此接口
+  - remark: "备用-Gemini"
+    format: "Gemini"
+    baseUrl: "https://generativelanguage.googleapis.com"
+    apiKey: "你的Gemini密钥"
+    modelId: "gemini-2.5-flash"
+    useProxy: true              # 是否使用代理访问此接口
+
+smartMode:
+  # 代理服务器配置（用于访问被限制的 AI 接口）
+  proxy:
+    url: "socks5://127.0.0.1:7890"  # HTTP 或 SOCKS5 代理地址，留空则不使用代理
+  
+  memory:
+    # ========== 基础开关 ==========
+    enable: false               # 是否启用记忆功能
+    injectToChat: true          # 是否在AI对话中自动注入用户记忆
+    logEnable: false            # 记忆提取日志开关
+    debugLog: false             # API 请求调试日志开关
+    groupList: []               # 功能生效群聊白名单（空=所有群）
+    blackList: []               # 用户黑名单（不收集这些用户的记忆）
+    
+    # ========== 模型配置 ==========
+    selectedModel: "默认-SF小模型"    # 日常提炼使用的小模型（在上方接口列表中选择）
+    syncModel: ""                      # 历史同步使用的大模型（在上方接口列表中选择，可选）
+    syncDays: 3                        # 历史同步默认天数
+    
+    # ========== 自动提炼配置 ==========
+    autoExtract:
+      enable: true              # 是否启用自动提炼
+      threshold: 10             # 缓冲区达到多少条消息时自动提炼（建议5-15）
+      minInterval: 3600         # 两次自动提炼的最小间隔（秒，建议1800-7200）
+      maxBufferSize: 30         # 缓冲区最大保留消息数（建议20-50）
+      bufferExpireDays: 7       # 缓冲区过期时间（天）
+    
+    # ========== 记忆整合策略 ==========
+    consolidation:
+      similarityThreshold: 0.85   # 事实相似度阈值（用于去重，建议0.8-0.9）
+      maxFactsPerCategory: 20     # 每类事实最大数量（建议10-30）
+      retentionDays: 90           # 事实保留天数（0=永久，建议30-90）
+      confidenceThreshold: 0.3    # 最低置信度（低于此值的事实会被删除，建议0.3-0.5）
+      mergeStrategy: "newer"      # 冲突解决策略：newer(新优先)/higher(高置信度优先)
+    
+    # ========== 提示词配置 ==========
+    # 提示词预设选择（在锅巴界面选择预设，会自动填充下面的提示词）
+    # 可选：standard(标准), concise(简洁), detailed(详细), roleplay(角色扮演), game(游戏群)
+    promptPreset: "standard"
+    
+    # 日常提炼提示词（JSON结构化输出）
+    # 默认使用标准模式，选择上方 preset 会自动更新
+    structuredPrompt: |-
+      你是一个专业的用户信息分析助手。请分析用户的聊天记录，提取结构化信息。
+      
+      请严格按照以下JSON格式输出（不要包含任何其他内容，确保输出是合法的JSON）：
+      {
+        "facts": [
+          {
+            "category": "basic",
+            "key": "属性名称",
+            "value": "属性值",
+            "confidence": 0.9
+          }
+        ],
+        "episodes": [
+          {
+            "date": "YYYY-MM-DD",
+            "event": "事件描述",
+            "importance": 0.8,
+            "emotionalTone": "情绪色彩"
+          }
+        ],
+        "summary": {
+          "short": "一句话总结（30字内）",
+          "detailed": "详细描述（100字内）"
+        }
+      }
+      
+      category 可选值：
+      - basic: 基本信息（年龄、职业、学历、所在地等）
+      - interest: 兴趣爱好（游戏、动漫、运动、美食等）
+      - personality: 性格特点（内向/外向、幽默/严肃等）
+      - habit: 习惯偏好（作息、常用语、表情习惯等）
+      - relationship: 人际关系（朋友、家庭、宠物等）
+      - skill: 技能特长（编程、绘画、音乐等）
+      
+      注意：
+      1. 只输出JSON，不要任何解释或markdown代码块标记
+      2. confidence 范围 0-1，表示你对这个信息的确定程度
+      3. 如果信息与历史档案冲突，以新信息为准，但保留高置信度的旧信息
+      4. 不要编造信息，只从提供的消息中提取
+    
+    # 历史同步提示词预设（在锅巴界面选择，会自动填充下面的 syncPrompt）
+    # 可选：standard(标准), concise(简洁), detailed(详细), roleplay(角色扮演), game(游戏群)
+    syncPromptPreset: "standard"
+    
+    # 历史同步提示词（大模型深度分析使用）
+    # 用于 #同步历史记忆 指令，会分析多天记录生成完整画像
+    syncPrompt: |-
+      你是一个顶级的心理侧写师。请根据用户的历史聊天记录，生成深度结构化档案。
+      
+      请严格按照以下JSON格式输出（不要包含任何其他内容）：
+      {
+        "facts": [
+          {
+            "category": "basic|interest|personality|habit|relationship|skill",
+            "key": "属性名",
+            "value": "属性值",
+            "confidence": 0.9
+          }
+        ],
+        "episodes": [
+          {
+            "date": "YYYY-MM-DD",
+            "event": "重要事件描述",
+            "importance": 0.8,
+            "emotionalTone": "情绪"
+          }
+        ],
+        "social": {
+          "closeFriends": ["好友昵称1", "好友昵称2"],
+          "activeTopics": ["常聊话题1", "常聊话题2"],
+          "roleInGroup": "群内角色（如：活跃分子/潜水员/开心果）"
+        },
+        "summary": {
+          "short": "一句话画像（50字内）",
+          "detailed": "详细画像（300字内）"
+        }
+      }
+      
+      注意：
+      1. 只输出JSON，不要任何解释
+      2. 结合历史档案进行分析，不要遗漏重要信息
+      3. 确保JSON格式合法
+  tools:
+    enable: false               # 是否启用工具调用
+    groupList: []               # 工具生效群聊白名单
+    debugLog: false             # 是否输出工具调用详细日志（调试时使用）
+    
+    # ========== 功能分类模型配置（从 smart_APIList 中选择）==========
+    models:
+      toolCallModel: ""         # 工具调用判断模型（需支持 Function Calling）
+      visionModel: ""           # 视觉理解模型（需支持识图）
+      drawingModel: ""          # AI绘图模型（需支持文生图）
+      searchModel: ""           # 搜索增强模型
+      chatModel: ""             # 对话生成模型（最终回复）
+      # 留空则使用当前对话模型，或默认配置
+    
+    enabledTools:              # 启用的工具列表（空=全部启用）
+      - pokeTool               # 戳一戳
+      - likeTool               # 点赞
+      - recallTool             # 撤回消息
+      - muteTool               # 禁言/解禁
+      - memberInfoTool         # 查询成员信息
+      # - searchTool           # 网络搜索（需要额外配置）
+      # - imageSearchTool      # 图片搜索
+      # - musicTool            # 音乐搜索
+      # - weatherTool          # 天气查询
+      # - translateTool        # 翻译
+      # - webParserTool        # 网页解析
+      # - reminderTool         # 定时提醒
+      # - drawTool             # AI绘图（使用SF画图）
+      # - chatHistoryTool      # 聊天历史
+    maxToolRounds: 5            # 单次对话最大工具调用轮数（1-10）
+    
+    # ========== 搜索工具配置 ==========
+    searchConfig:
+      maxKeywords: 3              # 单次搜索最多关键词数量（1-5，推荐3）
+      maxResults: 3               # 每个关键词返回结果数（1-10，推荐3）
+      maxTotalResults: 10         # 单次搜索总计最大结果数（5-20，推荐10）
+      maxRounds: 1                # 搜索轮数（1-3，推荐1，增加可提升全面性但耗时更长）
+      searxngUrl: ""             # SearXNG 实例地址（如 https://searx.example.com），留空使用 DuckDuckGo
+      forwardReference: true      # 是否以转发消息形式发送搜索来源链接
+      showThinkingTip: true       # 搜索时是否发送"正在搜索"提示
+      thinkingTipMsg: "派蒙帮你去搜索一下哦，稍等片刻~"  # 搜索提示语
+      useEmojiReaction: false     # 是否使用表情回应（NapCat等协议支持）
+      thinkingEmoji: "176"        # 思考中表情ID（NapCat: 176=搜索/思考表情，QQ标准表情）
+    
+    # ========== 图片搜索配置 ==========
+    imageSearchConfig:
+      defaultSource: "auto"       # 默认图片来源：bing、pixiv、auto（自动判断）
+      autoUsePixiv: true          # 是否自动使用 Pixiv 搜索二次元/动漫图片
+      pixivR18: false             # 是否允许 R18 内容（默认关闭）
+      pixivProxy: "i.pixiv.re"    # Pixiv 图片代理域名（用于国内访问）
