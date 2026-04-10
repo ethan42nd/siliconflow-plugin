@@ -1763,6 +1763,68 @@ export function supportGuoba() {
           },
         },
         {
+          label: '戳一戳互动配置',
+          component: 'Divider'
+        },
+        {
+          field: 'pokeConfig.enable',
+          label: '启用戳一戳互动',
+          bottomHelpMessage: '开启后，群成员戳一戳机器人时会按概率触发文字、图片、禁言或反戳',
+          component: 'Switch'
+        },
+        {
+          field: 'pokeConfig.reply_text_prob',
+          label: '文字回复概率',
+          bottomHelpMessage: '命中后从下方词库中随机回复一句话，范围 0 到 1',
+          component: 'InputNumber',
+          componentProps: {
+            min: 0,
+            max: 1,
+            step: 0.01
+          }
+        },
+        {
+          field: 'pokeConfig.reply_img_prob',
+          label: '图片回复概率',
+          bottomHelpMessage: '命中后从自动表情包图库或共享图库中随机发送图片，范围 0 到 1',
+          component: 'InputNumber',
+          componentProps: {
+            min: 0,
+            max: 1,
+            step: 0.01
+          }
+        },
+        {
+          field: 'pokeConfig.mutepick_prob',
+          label: '禁言概率',
+          bottomHelpMessage: '命中后尝试禁言触发者，要求机器人具备管理员权限，范围 0 到 1',
+          component: 'InputNumber',
+          componentProps: {
+            min: 0,
+            max: 1,
+            step: 0.01
+          }
+        },
+        {
+          field: 'pokeConfig.mute_duration',
+          label: '禁言时长(秒)',
+          bottomHelpMessage: '禁言分支命中后的时长，默认 60 秒',
+          component: 'InputNumber',
+          componentProps: {
+            min: 1,
+            step: 1
+          }
+        },
+        {
+          field: 'pokeConfig.word_list',
+          label: '回复词库',
+          bottomHelpMessage: '文字回复命中时按换行随机取一句',
+          component: 'InputTextArea',
+          componentProps: {
+            placeholder: '不要再戳了！\n救命啊，有变态！！！'
+          }
+        },
+        {
           label: '群自动表情包配置',
           component: 'Divider'
         },

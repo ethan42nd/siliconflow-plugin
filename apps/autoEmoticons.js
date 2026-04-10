@@ -170,6 +170,12 @@ function initSharedPicturesWatcher() {
     })
 }
 
+export function prepareAvailablePictures(groupId) {
+    initWatcher(String(groupId))
+    initSharedPicturesWatcher()
+    return getAvailablePictures(String(groupId))
+}
+
 /**
  * 获取可用的图片列表（群专属 + 共享图片）
  * @param {string} groupId 群号
@@ -184,6 +190,18 @@ export function getAvailablePictures(groupId) {
 
     // 合并群专属表情和共享图片
     return [...groupEmojiPaths, ...sharedPicturesCache]
+}
+
+export function getSentPictureFileInfo(picturePath) {
+    const sharedDir = path.join(process.cwd(), 'data', 'autoEmoticons', 'PaimonChuoYiChouPictures')
+    const normalizedSharedDir = `${sharedDir}${path.sep}`
+    const normalizedPicturePath = path.normalize(picturePath)
+
+    if (normalizedPicturePath.startsWith(normalizedSharedDir)) {
+        return `shared:${path.relative(sharedDir, picturePath)}`
+    }
+
+    return path.basename(picturePath)
 }
 
 /**
