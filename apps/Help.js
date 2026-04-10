@@ -166,6 +166,11 @@ export class help extends plugin {
                         "title": "#sfweb帮助",
                         "desc": "查看 WebUI 登录、申请、审批管理命令"
                     },
+                    {
+                        "icon": 74,
+                        "title": "#表情回应帮助",
+                        "desc": "查看表情回应功能的开启、设置和状态命令"
+                    },
                 ]
             }
         ]
@@ -370,4 +375,3 @@ export class help extends plugin {
         }
     }
 }
-

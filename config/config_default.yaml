@@ -159,6 +159,14 @@ autoEmoticons: {
   }
 autoRepeat_config: []
 autoReply: []
+emojiReaction:
+  enable: false
+  emojiId: "74"
+  useSameEmoji: false
+  reactToAllEmojis: true
+  cooldown: 5
+  onlyGroups: []
+  globalEnabled: false
 Jimeng: {
     cdtime: 60,
     dailyLimit: 0,
