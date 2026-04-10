@@ -1904,6 +1904,62 @@ export function supportGuoba() {
           },
         },
         {
+          label: '表情回应配置',
+          component: 'Divider'
+        },
+        {
+          field: 'emojiReaction.enable',
+          label: '启用表情回应',
+          bottomHelpMessage: '开启后，Bot 会对群成员发送的 QQ 表情或 Unicode Emoji 进行表情回应',
+          component: 'Switch'
+        },
+        {
+          field: 'emojiReaction.globalEnabled',
+          label: '默认开启个人回应',
+          bottomHelpMessage: '未手动设置过个人开关的用户，是否默认启用表情回应',
+          component: 'Switch'
+        },
+        {
+          field: 'emojiReaction.useSameEmoji',
+          label: '同表情回应',
+          bottomHelpMessage: '开启后会优先使用用户消息中的相同表情回应；关闭时使用固定表情 ID',
+          component: 'Switch'
+        },
+        {
+          field: 'emojiReaction.reactToAllEmojis',
+          label: '回应全部表情',
+          bottomHelpMessage: '仅在“同表情回应”模式下生效；关闭则只回应消息里的第一个表情',
+          component: 'Switch'
+        },
+        {
+          field: 'emojiReaction.emojiId',
+          label: '固定回应表情ID',
+          bottomHelpMessage: '关闭“同表情回应”后生效，例如 74=爱心，76=笑哭，179=点赞',
+          component: 'Input'
+        },
+        {
+          field: 'emojiReaction.cooldown',
+          label: '冷却时间(秒)',
+          bottomHelpMessage: '同一用户在同一群触发表情回应后的冷却时间',
+          component: 'InputNumber',
+          componentProps: {
+            min: 0,
+            step: 1
+          }
+        },
+        {
+          field: 'emojiReaction.onlyGroups',
+          label: '白名单群',
+          bottomHelpMessage: '留空则所有群生效；填写后仅在这些群启用表情回应',
+          component: 'Select',
+          componentProps: {
+            allowAdd: true,
+            allowDel: true,
+            mode: 'multiple',
+            options: groupList_total
+          }
+        },
+        {
           label: '复读 & 打断复读配置',
           component: 'Divider'
         },
