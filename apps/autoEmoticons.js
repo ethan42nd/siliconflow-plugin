@@ -7,6 +7,10 @@ import { getBotByQQ } from '../utils/onebotUtils.js'
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min
+const AUTO_EMOTICONS_DATA_DIR = path.join(process.cwd(), 'data', 'autoEmoticons')
+const SHARED_PICTURES_DIR = path.join(AUTO_EMOTICONS_DATA_DIR, 'PaimonChuoYiChouPictures')
+const RECYCLE_BIN_DIR = path.join(AUTO_EMOTICONS_DATA_DIR, 'recycle_bin')
+const RECYCLE_INDEX_PATH = path.join(RECYCLE_BIN_DIR, 'index.json')
 
 // 存储各群表情列表的缓存
 const emojiListCache = new Map()
@@ -19,6 +23,109 @@ const watchers = new Map()
 
 // 共享图片目录监视器
 let sharedPicturesWatcher = null
+
+function ensureDirSync(dir) {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+    }
+}
+
+function isImageFile(filename) {
+    return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(path.extname(filename).toLowerCase())
+}
+
+function moveFileSync(sourcePath, targetPath) {
+    ensureDirSync(path.dirname(targetPath))
+    try {
+        fs.renameSync(sourcePath, targetPath)
+    } catch (error) {
+        fs.copyFileSync(sourcePath, targetPath)
+        fs.unlinkSync(sourcePath)
+    }
+}
+
+function readRecycleIndex() {
+    if (!fs.existsSync(RECYCLE_INDEX_PATH)) {
+        return []
+    }
+
+    try {
+        const content = fs.readFileSync(RECYCLE_INDEX_PATH, 'utf-8')
+        const parsed = JSON.parse(content)
+        return Array.isArray(parsed) ? parsed : []
+    } catch (error) {
+        logger.error(`[autoEmoticons] 读取回收站索引失败: ${error}`)
+        return []
+    }
+}
+
+function writeRecycleIndex(records) {
+    ensureDirSync(RECYCLE_BIN_DIR)
+    fs.writeFileSync(RECYCLE_INDEX_PATH, JSON.stringify(records, null, 2))
+}
+
+function getNextRecycleRecordId(records) {
+    return records.reduce((max, record) => Math.max(max, Number(record.id) || 0), 0) + 1
+}
+
+function removeImageFromCache(groupId, filename, filePath, isShared) {
+    if (isShared) {
+        const index = sharedPicturesCache.indexOf(filePath)
+        if (index > -1) {
+            sharedPicturesCache.splice(index, 1)
+        }
+        return
+    }
+
+    const emojiList = emojiListCache.get(String(groupId)) || []
+    const index = emojiList.indexOf(filename)
+    if (index > -1) {
+        emojiList.splice(index, 1)
+        emojiListCache.set(String(groupId), emojiList)
+    }
+}
+
+function addImageToCache(groupId, filename, filePath, isShared) {
+    if (isShared) {
+        if (!sharedPicturesCache.includes(filePath)) {
+            sharedPicturesCache.push(filePath)
+        }
+        return
+    }
+
+    const groupKey = String(groupId)
+    const emojiList = emojiListCache.get(groupKey) || []
+    if (!emojiList.includes(filename)) {
+        emojiList.push(filename)
+        emojiListCache.set(groupKey, emojiList)
+    }
+}
+
+function getRecycleRecordImagePath(record) {
+    return path.join(RECYCLE_BIN_DIR, record.recycleFilename)
+}
+
+function resolveOriginalPathFromRecord(record) {
+    return path.join(AUTO_EMOTICONS_DATA_DIR, record.originalRelativePath)
+}
+
+function createRecycleRecord({ groupId, originalPath, originalFilename, isShared }) {
+    const records = readRecycleIndex()
+    const deletedAt = Date.now()
+    const recycleFilename = `${deletedAt}_${originalFilename}`
+    const record = {
+        id: getNextRecycleRecordId(records),
+        deletedAt,
+        groupId: String(groupId),
+        source: isShared ? 'shared' : 'group',
+        originalFilename,
+        originalRelativePath: path.relative(AUTO_EMOTICONS_DATA_DIR, originalPath),
+        recycleFilename
+    }
+    records.push(record)
+    writeRecycleIndex(records)
+    return record
+}
 
 /**
  * 兼容旧版配置：将旧版的字符串数组转换为对象数组
@@ -97,12 +204,10 @@ function getGroupTimeConfig(config, groupConfItem) {
 function initSharedPicturesWatcher() {
     if (sharedPicturesWatcher) return
 
-    const sharedPicturesDir = path.join(process.cwd(), 'data', 'autoEmoticons', 'PaimonChuoYiChouPictures')
+    const sharedPicturesDir = SHARED_PICTURES_DIR
 
     // 确保目录存在
-    if (!fs.existsSync(sharedPicturesDir)) {
-        fs.mkdirSync(sharedPicturesDir, { recursive: true })
-    }
+    ensureDirSync(sharedPicturesDir)
 
     // 递归读取所有图片文件
     function loadSharedPictures(dir) {
@@ -117,7 +222,7 @@ function initSharedPicturesWatcher() {
                 } else if (item.isFile()) {
                     // 检查是否为图片文件
                     const ext = path.extname(item.name).toLowerCase()
-                    if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(ext)) {
+                    if (isImageFile(item.name)) {
                         pictures.push(fullPath)
                     }
                 }
@@ -170,6 +275,12 @@ function initSharedPicturesWatcher() {
     })
 }
 
+export function prepareAvailablePictures(groupId) {
+    initWatcher(String(groupId))
+    initSharedPicturesWatcher()
+    return getAvailablePictures(String(groupId))
+}
+
 /**
  * 获取可用的图片列表（群专属 + 共享图片）
  * @param {string} groupId 群号
@@ -184,6 +295,18 @@ export function getAvailablePictures(groupId) {
 
     // 合并群专属表情和共享图片
     return [...groupEmojiPaths, ...sharedPicturesCache]
+}
+
+export function getSentPictureFileInfo(picturePath) {
+    const sharedDir = path.join(process.cwd(), 'data', 'autoEmoticons', 'PaimonChuoYiChouPictures')
+    const normalizedSharedDir = `${sharedDir}${path.sep}`
+    const normalizedPicturePath = path.normalize(picturePath)
+
+    if (normalizedPicturePath.startsWith(normalizedSharedDir)) {
+        return `shared:${path.relative(sharedDir, picturePath)}`
+    }
+
+    return path.basename(picturePath)
 }
 
 /**
@@ -279,6 +402,16 @@ export class autoEmoticons extends plugin {
                 {
                     reg: '^#?(哒|达)咩$',
                     fnc: 'deleteEmoji',
+                },
+                {
+                    reg: '^#?(哒|达)咩记录(?:第(\\d+)页)?$',
+                    fnc: 'showDeleteRecords',
+                    permission: 'master'
+                },
+                {
+                    reg: '^#恢复表情\\s*(\\d+)$',
+                    fnc: 'restoreEmoji',
+                    permission: 'master'
                 },
                 {
                     reg: '^#表情包配置$',
@@ -662,48 +795,37 @@ export class autoEmoticons extends plugin {
         }
 
         try {
-            let filePath;
-            let canDelete = true;
-            let fileUnique = null;
+            const isShared = fileInfo.startsWith('shared:')
+            const filePath = isShared
+                ? path.join(SHARED_PICTURES_DIR, fileInfo.substring(7))
+                : path.join(AUTO_EMOTICONS_DATA_DIR, 'emoji_save', groupId, fileInfo)
 
-            if (fileInfo.startsWith('shared:')) {
-                // 共享图片 - 不允许删除
-                canDelete = false;
-                await e.reply('[autoEmoticons] 这是共享目录图片，不能删除哦~', true);
-            } else {
-                // 群专属表情
-                filePath = path.join(process.cwd(), 'data', 'autoEmoticons', 'emoji_save', groupId, fileInfo);
-                // 获取文件唯一标识，去除扩展名
-                fileUnique = path.basename(fileInfo, path.extname(fileInfo));
-            }
+            if (fs.existsSync(filePath)) {
+                const filename = path.basename(filePath)
+                const fileUnique = path.basename(filename, path.extname(filename))
+                const record = createRecycleRecord({
+                    groupId,
+                    originalPath: filePath,
+                    originalFilename: filename,
+                    isShared
+                })
+                const targetPath = getRecycleRecordImagePath(record)
 
-            if (canDelete && filePath && fs.existsSync(filePath)) {
-                const filename = path.basename(filePath);
-                fs.unlinkSync(filePath);
+                moveFileSync(filePath, targetPath)
+                removeImageFromCache(groupId, filename, filePath, isShared)
 
-                const emojiList = emojiListCache.get(groupId) || [];
-                const index = emojiList.indexOf(filename);
-                if (index > -1) {
-                    emojiList.splice(index, 1);
-                    emojiListCache.set(groupId, emojiList);
-                }
+                await redis.set(`Yz:autoEmoticons:blocked:${fileUnique}`, '1', {
+                    EX: 30 * 24 * 60 * 60
+                })
 
-                // 将删除的表情添加到黑名单，30天内不再下载
-                if (fileUnique) {
-                    const blockKey = `Yz:autoEmoticons:blocked:${fileUnique}`
-                    const ONE_MONTH_IN_SECONDS = 30 * 24 * 60 * 60 // 30天的秒数
-                    await redis.set(blockKey, '1', {
-                        EX: ONE_MONTH_IN_SECONDS
-                    })
-                    logger.mark(`[autoEmoticons] 表情被删除，已加入黑名单: ${fileUnique}，30天内不再下载`)
-                }
-
-                let res = await e.group.recallMsg(replyMsgId)
+                const res = await e.group.recallMsg(replyMsgId)
                 if (!res) {
-                    this.reply("人家不是管理员，不能撤回超过2分钟的消息呢~")
+                    await e.reply('人家不是管理员，不能撤回超过2分钟的消息呢~')
                 }
 
-                await e.reply(`呜呜呜~人家错了，以后不发了~呜`);
+                await e.reply(`呜呜呜~人家错了，图片已经被移进回收站了~\n记录编号：${record.id}`)
+            } else {
+                await e.reply('文件好像已经不存在了，找不到它呢。', true)
             }
 
             await redis.del(`Yz:autoEmoticons.sent:pic_filePath:${groupId}:${replyMsgId}`);
@@ -712,6 +834,129 @@ export class autoEmoticons extends plugin {
         }
 
         return true;
+    }
+
+    async showDeleteRecords(e) {
+        if (!e.isMaster) return false
+
+        const page = Math.max(1, Number(e.msg.match(/第(\d+)页/)?.[1] || 1))
+        const senderId = e.self_id || e.bot?.uin || Bot.uin
+        const senderName = e.bot?.nickname || Bot.nickname || 'sf-plugin'
+        const allRecords = readRecycleIndex()
+            .filter(record => fs.existsSync(getRecycleRecordImagePath(record)))
+            .sort((a, b) => b.deletedAt - a.deletedAt)
+
+        if (allRecords.length === 0) {
+            await e.reply('回收站里还没有图片记录。', true)
+            return true
+        }
+
+        const pageSize = 10
+        const maxPage = Math.max(1, Math.ceil(allRecords.length / pageSize))
+        const currentPage = Math.min(page, maxPage)
+        const start = (currentPage - 1) * pageSize
+        const pageRecords = allRecords.slice(start, start + pageSize)
+
+        const forwardNodes = [
+            {
+                user_id: senderId,
+                nickname: senderName,
+                message: [
+                    '📦 哒咩回收站记录',
+                    `共 ${allRecords.length} 张图片`,
+                    `第 ${currentPage}/${maxPage} 页`,
+                    '恢复命令：#恢复表情 编号'
+                ].join('\n')
+            }
+        ]
+
+        for (const record of pageRecords) {
+            const timeText = new Date(record.deletedAt).toLocaleString('zh-CN', { hour12: false })
+            const sourceText = record.source === 'shared' ? '共享目录' : `群 ${record.groupId}`
+            forwardNodes.push({
+                user_id: senderId,
+                nickname: senderName,
+                message: [
+                    [
+                        `编号 ${record.id}\n`,
+                        `来源：${sourceText}\n`,
+                        `删除时间：${timeText}\n`,
+                        `原文件：${record.originalFilename}\n`
+                    ].join(''),
+                    segment.image(getRecycleRecordImagePath(record))
+                ]
+            })
+        }
+
+        try {
+            const forwardMsg = e.isGroup
+                ? await e.group.makeForwardMsg(forwardNodes)
+                : await e.friend.makeForwardMsg(forwardNodes)
+            await e.reply(forwardMsg)
+        } catch (error) {
+            logger.error(`[autoEmoticons] 生成哒咩记录转发消息失败: ${error}`)
+            await e.reply('合并转发消息生成失败，当前协议端可能不支持。', true)
+        }
+
+        return true
+    }
+
+    async restoreEmoji(e) {
+        if (!e.isMaster) return false
+
+        const recordId = Number(e.msg.match(/^#恢复表情\s*(\d+)$/)?.[1])
+        if (!recordId) {
+            await e.reply('请使用 #恢复表情 编号', true)
+            return true
+        }
+
+        const records = readRecycleIndex()
+        const recordIndex = records.findIndex(record => Number(record.id) === recordId)
+        if (recordIndex === -1) {
+            await e.reply(`未找到编号 ${recordId} 的回收站记录。`, true)
+            return true
+        }
+
+        const record = records[recordIndex]
+        const recyclePath = getRecycleRecordImagePath(record)
+        if (!fs.existsSync(recyclePath)) {
+            records.splice(recordIndex, 1)
+            writeRecycleIndex(records)
+            await e.reply(`编号 ${recordId} 的图片文件已经不存在，记录已清理。`, true)
+            return true
+        }
+
+        const originalPath = resolveOriginalPathFromRecord(record)
+        let targetPath = originalPath
+        let restoredAsOriginal = true
+
+        if (fs.existsSync(targetPath)) {
+            const ext = path.extname(targetPath)
+            const baseName = path.basename(targetPath, ext)
+            targetPath = path.join(path.dirname(targetPath), `${baseName}_restored_${Date.now()}${ext}`)
+            restoredAsOriginal = false
+        }
+
+        try {
+            moveFileSync(recyclePath, targetPath)
+            addImageToCache(record.groupId, path.basename(targetPath), targetPath, record.source === 'shared')
+
+            await redis.del(`Yz:autoEmoticons:blocked:${path.basename(record.originalFilename, path.extname(record.originalFilename))}`)
+
+            records.splice(recordIndex, 1)
+            writeRecycleIndex(records)
+
+            await e.reply([
+                `已恢复编号 ${recordId} 的图片。`,
+                `恢复位置：${record.source === 'shared' ? '共享目录' : `群 ${record.groupId} 表情目录`}`,
+                restoredAsOriginal ? '已恢复到原始文件名。' : `原位置已有同名文件，已改名为：${path.basename(targetPath)}`
+            ].join('\n'), true)
+        } catch (error) {
+            logger.error(`[autoEmoticons] 恢复回收站图片失败: ${error}`)
+            await e.reply('恢复失败，请查看日志。', true)
+        }
+
+        return true
     }
 
     /**
