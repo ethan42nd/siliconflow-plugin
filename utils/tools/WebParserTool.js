@@ -108,7 +108,11 @@ export class WebParserTool extends AbstractTool {
       const html = await response.text()
       return this.parseHtml(html, response.url || url, options)
     } catch (error) {
-      logger.error('获取网页内容失败:', error)
+      if (options.suppressLog) {
+        logger.debug(`获取网页内容失败(已静默): ${error.message}`)
+      } else {
+        logger.error('获取网页内容失败:', error)
+      }
       return null
     }
   }

@@ -1942,7 +1942,7 @@ export function supportGuoba() {
               {
                 field: "maxKeywords",
                 label: "最大关键词数",
-                bottomHelpMessage: "单次搜索最多使用几个关键词。多个关键词可获取更全面信息，但会增加 Token 消耗。推荐：3",
+                bottomHelpMessage: "每轮搜索最多使用几个关键词。推荐 2；术语类问题会按“中文语境 -> 英文术语”分轮执行，不建议设太大。",
                 component: "InputNumber",
                 componentProps: {
                   min: 1,
@@ -1962,9 +1962,31 @@ export function supportGuoba() {
                 },
               },
               {
+                field: "recallResultsPerQuery",
+                label: "后台召回数",
+                bottomHelpMessage: "每个查询实际抓取多少条搜索结果再交给排序器处理。推荐 8；显示给模型的结果仍受“总结最大结果数”控制。",
+                component: "InputNumber",
+                componentProps: {
+                  min: 3,
+                  max: 20,
+                  step: 1,
+                },
+              },
+              {
+                field: "terminologyRecallResults",
+                label: "术语召回数",
+                bottomHelpMessage: "术语、来源、缩写类问题每个查询额外抓取多少条结果。推荐 10，提高冷门术语命中率。",
+                component: "InputNumber",
+                componentProps: {
+                  min: 3,
+                  max: 20,
+                  step: 1,
+                },
+              },
+              {
                 field: "maxTotalResults",
                 label: "总结最大结果数",
-                bottomHelpMessage: "单次搜索总计最多返回几条结果（去重后）。推荐：10",
+                bottomHelpMessage: "单次搜索总计最多返回几条结果（去重后）。推荐：6，避免把弱相关结果一并喂给模型。",
                 component: "InputNumber",
                 componentProps: {
                   min: 5,
@@ -1975,7 +1997,7 @@ export function supportGuoba() {
               {
                 field: "maxRounds",
                 label: "搜索轮数",
-                bottomHelpMessage: "进行几轮搜索（使用不同引擎或时间间隔）。增加轮数可提升全面性但耗时更长。推荐：1",
+                bottomHelpMessage: "搜索计划的最大轮数。推荐 2：第 1 轮优先中文语境，第 2 轮补英文术语；第 3 轮才适合词典/百科核验。",
                 component: "InputNumber",
                 componentProps: {
                   min: 1,
@@ -2017,7 +2039,7 @@ export function supportGuoba() {
               {
                 field: "maxParsedResults",
                 label: "正文解析页数",
-                bottomHelpMessage: "每次搜索最多自动读取几个网页正文。推荐 1-2，低频使用场景建议 2。",
+                bottomHelpMessage: "每次搜索最多自动读取几个网页正文。推荐 1，先保守读取高分结果，减少超时和噪音。",
                 component: "InputNumber",
                 componentProps: {
                   min: 0,
@@ -2028,12 +2050,23 @@ export function supportGuoba() {
               {
                 field: "maxParsedChars",
                 label: "单页正文长度",
-                bottomHelpMessage: "每个网页最多向模型提供多少字符的正文内容。推荐 800-1500。",
+                bottomHelpMessage: "每个网页最多向模型提供多少字符的正文内容。推荐 1000，足够术语核验且不易淹没模型。",
                 component: "InputNumber",
                 componentProps: {
                   min: 500,
                   max: 4000,
                   step: 100,
+                },
+              },
+              {
+                field: "maxWeakFallbackResults",
+                label: "弱相关保底数",
+                bottomHelpMessage: "严格过滤后若没有可靠结果，最多保留几条低置信候选结果用于兜底解释。推荐 2。",
+                component: "InputNumber",
+                componentProps: {
+                  min: 0,
+                  max: 5,
+                  step: 1,
                 },
               },
               {

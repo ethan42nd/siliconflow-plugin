@@ -122,16 +122,19 @@ smartMode:
       chatModel: "" # 对话生成模型（最终回复）
     enabledTools: [] # 留空表示全部启用
     searchConfig:
-      maxKeywords: 3
+      maxKeywords: 2
       maxResults: 3
-      maxTotalResults: 10
-      maxRounds: 1
+      recallResultsPerQuery: 8
+      terminologyRecallResults: 10
+      maxTotalResults: 6
+      maxRounds: 2
       preferredEngine: "auto" # auto=自动，其他可选 bing/searxng
       preferOfficialSources: true # 对价格/套餐/API/文档等问题优先补搜官网并提升官网排序
       demoteCommunitySources: true # 对知乎/CSDN/掘金等社区站点在官方信息类问题中降权
       enrichWithPageContent: true # 搜索后自动读取前几个网页正文，提升回答准确性
-      maxParsedResults: 2 # 每次搜索最多解析几个结果页面正文
-      maxParsedChars: 1200 # 每个网页传给模型的正文最大字符数
+      maxParsedResults: 1 # 每次搜索最多解析几个结果页面正文
+      maxParsedChars: 1000 # 每个网页传给模型的正文最大字符数
+      maxWeakFallbackResults: 2 # 严格过滤后为 0 时，最多保留几条低置信候选结果
       siteProfiles: [] # 结构化搜索站点画像规则，适合在锅巴里逐条维护关键词、官方域名和保底链接
       siteProfilesJson: "" # 可选：搜索站点画像 JSON，用于补充/覆盖官方域名、保底链接、低价值页面规则
       searxngUrl: ""
