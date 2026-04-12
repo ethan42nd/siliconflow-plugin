@@ -12,6 +12,16 @@ export function supportGuoba() {
   /** 群列表（仅群号） */
   let groupList_total = Array.from(Bot.gl.values())
   groupList_total = groupList_total.map(item => item = { label: `${item.group_name} - ${item.group_id}`, value: item.group_id.toString() })
+  const smartApiList = Config.getConfig()?.smart_APIList || []
+  const createSmartModelOptions = (defaultLabel) => ([
+    { label: defaultLabel, value: "" },
+    ...smartApiList
+      .map((api) => String(api?.remark || "").trim())
+      .filter(Boolean)
+      .map((remark) => ({ label: `🔧 ${remark}`, value: remark }))
+  ])
+  const smartToolModelOptions = createSmartModelOptions("🤖 使用当前对话模型（默认）")
+  const smartDrawingModelOptions = createSmartModelOptions("🎨 使用 SiliconFlow 绘图配置（默认）")
   /** 私聊 - 8888 */
   // groupList_total = [{ label: "私聊 - 8888", value: "8888" }, ...groupList_total]
   return {
@@ -1729,7 +1739,7 @@ export function supportGuoba() {
         },
         {
           component: "Divider",
-          label: "工具调用",
+          label: "🛠️ 工具配置 (Tool Calling)",
           componentProps: {
             orientation: "left",
             plain: true,
@@ -1738,13 +1748,13 @@ export function supportGuoba() {
         {
           field: "smartMode.tools.enable",
           label: "启用工具调用",
-          bottomHelpMessage: "仅影响 #ss 这条 OpenAI 兼容对话链路；开启后模型可按需调用工具",
+          bottomHelpMessage: "开启后AI可以根据用户意图自动调用工具（戳一戳、点赞、禁言等）。",
           component: "Switch",
         },
         {
           field: "smartMode.tools.groupList",
-          label: "工具生效群",
-          bottomHelpMessage: "留空表示所有群都可触发工具调用",
+          label: "工具生效群聊",
+          bottomHelpMessage: "仅在选中的群聊中启用工具调用。留空则在所有群生效。",
           component: "Select",
           componentProps: {
             allowAdd: true,
@@ -1755,14 +1765,104 @@ export function supportGuoba() {
         },
         {
           field: "smartMode.tools.debugLog",
-          label: "工具调试日志",
-          bottomHelpMessage: "开启后在控制台输出工具调用流程和参数",
+          label: "工具调用详细日志",
+          bottomHelpMessage: "开启后会在控制台输出工具调用的详细信息（请求参数、返回结果等），仅用于调试。",
           component: "Switch",
         },
         {
+          component: 'Divider',
+          label: '功能分类模型配置（可选）',
+          componentProps: {
+            orientation: 'left',
+            plain: true,
+          },
+        },
+        {
+          field: "smartMode.tools.models.toolCallModel",
+          label: "🛠️ 工具调用模型",
+          bottomHelpMessage: "用于判断是否需要调用工具的模型。必须支持 Function Calling（如 GPT-4、Qwen2.5、DeepSeek）。留空则使用当前对话模型。",
+          component: "Select",
+          componentProps: {
+            options: smartToolModelOptions,
+            placeholder: '使用当前对话模型',
+          },
+        },
+        {
+          field: "smartMode.tools.models.visionModel",
+          label: "👁️ 视觉理解模型",
+          bottomHelpMessage: "用于理解图片内容的模型。需要视觉能力（如 GPT-4V、Gemini Pro Vision、Qwen-VL）。留空则使用当前对话模型。",
+          component: "Select",
+          componentProps: {
+            options: smartToolModelOptions,
+            placeholder: '使用当前对话模型',
+          },
+        },
+        {
+          field: "smartMode.tools.models.drawingModel",
+          label: "🎨 AI绘图模型",
+          bottomHelpMessage: "用于生成图片的模型。需要文生图能力（如 DALL-E、Stable Diffusion、Midjourney）。留空则使用 SiliconFlow 画图配置。",
+          component: "Select",
+          componentProps: {
+            options: smartDrawingModelOptions,
+            placeholder: '使用 SF 画图配置',
+          },
+        },
+        {
+          field: "smartMode.tools.models.searchModel",
+          label: "🔍 搜索增强模型",
+          bottomHelpMessage: "用于处理搜索结果的模型。建议选择擅长长文本处理的模型。留空则使用当前对话模型。",
+          component: "Select",
+          componentProps: {
+            options: smartToolModelOptions,
+            placeholder: '使用当前对话模型',
+          },
+        },
+        {
+          field: "smartMode.tools.models.chatModel",
+          label: "💬 对话生成模型",
+          bottomHelpMessage: "用于生成最终回复的模型。这是用户看到的主要回复，建议选择对话流畅的模型。留空则使用当前对话模型。",
+          component: "Select",
+          componentProps: {
+            options: smartToolModelOptions,
+            placeholder: '使用当前对话模型',
+          },
+        },
+        {
+          component: 'Divider',
+          componentProps: {
+            orientation: 'left',
+            plain: true,
+          },
+        },
+        {
+          field: "smartMode.tools.enabledTools",
+          label: "启用的工具",
+          bottomHelpMessage: "选择要启用的工具，推荐根据群聊实际需求选择。工具越多，AI判断开销越大。",
+          component: "Select",
+          componentProps: {
+            mode: 'multiple',
+            options: [
+              { label: "🤏 戳一戳", value: "pokeTool" },
+              { label: "👍 点赞", value: "likeTool" },
+              { label: "🗑️ 撤回消息", value: "recallTool" },
+              { label: "🚫 禁言/解禁", value: "muteTool" },
+              { label: "👤 查询成员信息", value: "memberInfoTool" },
+              { label: "🔍 网络搜索", value: "searchTool" },
+              { label: "🖼️ 图片搜索", value: "imageSearchTool" },
+              { label: "🎵 音乐搜索", value: "musicTool" },
+              { label: "🌤️ 天气查询", value: "weatherTool" },
+              { label: "🌐 翻译", value: "translateTool" },
+              { label: "🔗 网页解析", value: "webParserTool" },
+              { label: "⏰ 定时提醒", value: "reminderTool" },
+              { label: "🎨 AI绘图", value: "drawTool" },
+              { label: "💬 聊天历史", value: "chatHistoryTool" },
+            ]
+          },
+        },
+        {
           field: "smartMode.tools.maxToolRounds",
-          label: "最大工具轮数",
-          bottomHelpMessage: "单次对话中工具调用的最大轮数",
+          label: "最大工具调用轮数",
+          bottomHelpMessage: "单次对话中最多进行几轮工具调用。设置过大可能导致对话时间过长。",
           component: "InputNumber",
           componentProps: {
             min: 1,
@@ -1771,70 +1871,9 @@ export function supportGuoba() {
           },
         },
         {
-          field: "smartMode.tools.models.toolCallModel",
-          label: "工具判断模型",
-          bottomHelpMessage: "从智能模式接口池中选择。留空则使用当前 #ss 对话接口",
-          component: "Select",
-          componentProps: {
-            options: [{ label: "使用当前 #ss 接口", value: "" }].concat((Config.getConfig()?.smart_APIList || []).map((item) => ({
-              label: item.remark || "未命名接口",
-              value: item.remark || ""
-            })))
-          },
-        },
-        {
-          field: "smartMode.tools.models.drawingModel",
-          label: "绘图模型",
-          bottomHelpMessage: "drawTool 专用。留空则继续使用 SiliconFlow 默认绘图配置",
-          component: "Select",
-          componentProps: {
-            options: [{ label: "使用默认绘图配置", value: "" }].concat((Config.getConfig()?.smart_APIList || []).map((item) => ({
-              label: item.remark || "未命名接口",
-              value: item.remark || ""
-            })))
-          },
-        },
-        {
-          field: "smartMode.tools.models.chatModel",
-          label: "最终回复模型",
-          bottomHelpMessage: "从智能模式接口池中选择。留空则使用当前 #ss 对话接口",
-          component: "Select",
-          componentProps: {
-            options: [{ label: "使用当前 #ss 接口", value: "" }].concat((Config.getConfig()?.smart_APIList || []).map((item) => ({
-              label: item.remark || "未命名接口",
-              value: item.remark || ""
-            })))
-          },
-        },
-        {
-          field: "smartMode.tools.enabledTools",
-          label: "启用工具",
-          bottomHelpMessage: "留空表示全部启用",
-          component: "Select",
-          componentProps: {
-            mode: 'multiple',
-            options: [
-              { label: "pokeTool - 戳一戳", value: "pokeTool" },
-              { label: "likeTool - 点赞", value: "likeTool" },
-              { label: "recallTool - 撤回消息", value: "recallTool" },
-              { label: "muteTool - 禁言", value: "muteTool" },
-              { label: "memberInfoTool - 成员信息", value: "memberInfoTool" },
-              { label: "searchTool - 网络搜索", value: "searchTool" },
-              { label: "imageSearchTool - 图片搜索", value: "imageSearchTool" },
-              { label: "musicTool - 音乐搜索", value: "musicTool" },
-              { label: "weatherTool - 天气查询", value: "weatherTool" },
-              { label: "translateTool - 翻译", value: "translateTool" },
-              { label: "webParserTool - 网页解析", value: "webParserTool" },
-              { label: "reminderTool - 定时提醒", value: "reminderTool" },
-              { label: "drawTool - AI绘图", value: "drawTool" },
-              { label: "chatHistoryTool - 聊天历史", value: "chatHistoryTool" },
-            ]
-          },
-        },
-        {
           field: "smartMode.tools.searchConfig.maxKeywords",
           label: "最大关键词数",
-          bottomHelpMessage: "searchTool 单次最多拆分几个分号分隔关键词，推荐 3",
+          bottomHelpMessage: "单次搜索最多使用几个关键词。多个关键词可获取更全面信息，但会增加 Token 消耗。推荐：3",
           component: "InputNumber",
           componentProps: {
             min: 1,
@@ -1845,7 +1884,7 @@ export function supportGuoba() {
         {
           field: "smartMode.tools.searchConfig.maxResults",
           label: "每关键词结果数",
-          bottomHelpMessage: "每个关键词最多返回几条结果，推荐 3",
+          bottomHelpMessage: "每个关键词返回几条搜索结果。推荐：3",
           component: "InputNumber",
           componentProps: {
             min: 1,
@@ -1855,8 +1894,8 @@ export function supportGuoba() {
         },
         {
           field: "smartMode.tools.searchConfig.maxTotalResults",
-          label: "总结果上限",
-          bottomHelpMessage: "所有关键词合并去重后的总结果上限，推荐 10",
+          label: "总计最大结果数",
+          bottomHelpMessage: "单次搜索总计最多返回几条结果（去重后）。推荐：10",
           component: "InputNumber",
           componentProps: {
             min: 5,
@@ -1867,7 +1906,7 @@ export function supportGuoba() {
         {
           field: "smartMode.tools.searchConfig.maxRounds",
           label: "搜索轮数",
-          bottomHelpMessage: "搜索引擎回退轮数，推荐 1；更高会更慢",
+          bottomHelpMessage: "进行几轮搜索（使用不同引擎或时间间隔）。增加轮数可提升全面性但耗时更长。推荐：1",
           component: "InputNumber",
           componentProps: {
             min: 1,
@@ -1877,8 +1916,8 @@ export function supportGuoba() {
         },
         {
           field: "smartMode.tools.searchConfig.searxngUrl",
-          label: "SearXNG 搜索地址",
-          bottomHelpMessage: "可选。填写手动可用的 SearXNG 实例地址；留空时使用 DuckDuckGo / Bing 回退。",
+          label: "SearXNG 地址",
+          bottomHelpMessage: "可选：自建 SearXNG 实例地址（如 https://searx.example.com），提供更稳定的搜索。留空使用 DuckDuckGo。",
           component: "Input",
           componentProps: {
             placeholder: "https://searx.example.com",
@@ -1887,19 +1926,19 @@ export function supportGuoba() {
         {
           field: "smartMode.tools.searchConfig.forwardReference",
           label: "转发搜索来源",
-          bottomHelpMessage: "开启后，searchTool 会在主回复后用合并转发发送来源链接",
+          bottomHelpMessage: "开启后，搜索结果链接会以转发消息（合并消息）形式发送，避免刷屏且更美观。",
           component: "Switch",
         },
         {
           field: "smartMode.tools.searchConfig.showThinkingTip",
           label: "显示搜索提示",
-          bottomHelpMessage: "searchTool 调用前先发送一条提示语",
+          bottomHelpMessage: "搜索前是否发送提示消息（如'派蒙帮你去搜索一下哦'）。",
           component: "Switch",
         },
         {
           field: "smartMode.tools.searchConfig.thinkingTipMsg",
           label: "搜索提示语",
-          bottomHelpMessage: "searchTool 调用前发送的提示内容",
+          bottomHelpMessage: "搜索前发送的提示消息内容。",
           component: "Input",
           componentProps: {
             placeholder: "派蒙帮你去搜索一下哦，稍等片刻~",
@@ -1907,14 +1946,14 @@ export function supportGuoba() {
         },
         {
           field: "smartMode.tools.searchConfig.useEmojiReaction",
-          label: "搜索表情回应",
-          bottomHelpMessage: "NapCat 等协议支持时，对原消息添加思考表情",
+          label: "使用表情回应",
+          bottomHelpMessage: "NapCat等协议支持的表情回应功能。开启后搜索时会用表情回应原消息表示思考中。",
           component: "Switch",
         },
         {
           field: "smartMode.tools.searchConfig.thinkingEmoji",
-          label: "思考表情 ID",
-          bottomHelpMessage: "NapCat 常用 176；仅在开启搜索表情回应时生效",
+          label: "思考表情ID",
+          bottomHelpMessage: "搜索时使用的表情ID。NapCat 可用 176（搜索/思考表情），其他协议请参考对应文档。",
           component: "Input",
           componentProps: {
             placeholder: "176",
@@ -1923,13 +1962,13 @@ export function supportGuoba() {
         {
           field: "smartMode.tools.imageSearchConfig.defaultSource",
           label: "默认图片来源",
-          bottomHelpMessage: "imageSearchTool 默认来源。auto 会按关键词自动切换 Bing / Pixiv",
+          bottomHelpMessage: "图片搜索的默认来源。auto=自动判断（含二次元/动漫词自动使用 Pixiv），bing=必应，pixiv=Pixiv。",
           component: "Select",
           componentProps: {
             options: [
-              { label: "auto - 自动判断", value: "auto" },
-              { label: "bing - 必应", value: "bing" },
-              { label: "pixiv - Pixiv", value: "pixiv" },
+              { label: "🔄 自动判断", value: "auto" },
+              { label: "🔍 必应", value: "bing" },
+              { label: "🎨 Pixiv", value: "pixiv" },
             ]
           },
         },
