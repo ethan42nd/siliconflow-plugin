@@ -1663,6 +1663,311 @@ export function supportGuoba() {
           component: "Switch",
         },
         {
+          label: '智能模式',
+          component: 'SOFT_GROUP_BEGIN'
+        },
+        {
+          component: "Divider",
+          label: "智能模式接口池",
+          componentProps: {
+            orientation: "left",
+            plain: true,
+          },
+        },
+        {
+          field: "smartMode.proxy.url",
+          label: "代理服务器",
+          bottomHelpMessage: "配置 HTTP/HTTPS/SOCKS5 代理服务器，用于访问受限接口。留空则不使用代理。",
+          component: "Input",
+          componentProps: {
+            placeholder: "http://127.0.0.1:7890 或 socks5://127.0.0.1:7890",
+          },
+        },
+        {
+          field: "smart_APIList",
+          label: "智能模式接口池",
+          bottomHelpMessage: "工具调用和智能模式可从这里选择专用接口；remark 会作为下拉选项展示名",
+          component: "GSubForm",
+          componentProps: {
+            multiple: true,
+            schemas: [
+              {
+                field: "remark",
+                label: "接口备注",
+                required: true,
+                component: "Input",
+              },
+              {
+                field: "baseUrl",
+                label: "接口地址",
+                component: "Input",
+                componentProps: {
+                  placeholder: "https://api.example.com/v1",
+                },
+              },
+              {
+                field: "apiKey",
+                label: "接口密钥",
+                component: "InputPassword",
+              },
+              {
+                field: "modelId",
+                label: "模型名称",
+                component: "Input",
+                componentProps: {
+                  placeholder: "gpt-4o-mini",
+                },
+              },
+              {
+                field: "useProxy",
+                label: "启用代理",
+                component: "Switch",
+                bottomHelpMessage: "是否通过上方配置的代理服务器访问此接口。默认关闭。",
+              },
+            ],
+          },
+        },
+        {
+          component: "Divider",
+          label: "工具调用",
+          componentProps: {
+            orientation: "left",
+            plain: true,
+          },
+        },
+        {
+          field: "smartMode.tools.enable",
+          label: "启用工具调用",
+          bottomHelpMessage: "仅影响 #ss 这条 OpenAI 兼容对话链路；开启后模型可按需调用工具",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.groupList",
+          label: "工具生效群",
+          bottomHelpMessage: "留空表示所有群都可触发工具调用",
+          component: "Select",
+          componentProps: {
+            allowAdd: true,
+            allowDel: true,
+            mode: 'multiple',
+            options: [{ label: "私聊 - 8888", value: "8888" }, ...groupList_total]
+          }
+        },
+        {
+          field: "smartMode.tools.debugLog",
+          label: "工具调试日志",
+          bottomHelpMessage: "开启后在控制台输出工具调用流程和参数",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.maxToolRounds",
+          label: "最大工具轮数",
+          bottomHelpMessage: "单次对话中工具调用的最大轮数",
+          component: "InputNumber",
+          componentProps: {
+            min: 1,
+            max: 10,
+            step: 1,
+          },
+        },
+        {
+          field: "smartMode.tools.models.toolCallModel",
+          label: "工具判断模型",
+          bottomHelpMessage: "从智能模式接口池中选择。留空则使用当前 #ss 对话接口",
+          component: "Select",
+          componentProps: {
+            options: [{ label: "使用当前 #ss 接口", value: "" }].concat((Config.getConfig()?.smart_APIList || []).map((item) => ({
+              label: item.remark || "未命名接口",
+              value: item.remark || ""
+            })))
+          },
+        },
+        {
+          field: "smartMode.tools.models.drawingModel",
+          label: "绘图模型",
+          bottomHelpMessage: "drawTool 专用。留空则继续使用 SiliconFlow 默认绘图配置",
+          component: "Select",
+          componentProps: {
+            options: [{ label: "使用默认绘图配置", value: "" }].concat((Config.getConfig()?.smart_APIList || []).map((item) => ({
+              label: item.remark || "未命名接口",
+              value: item.remark || ""
+            })))
+          },
+        },
+        {
+          field: "smartMode.tools.models.chatModel",
+          label: "最终回复模型",
+          bottomHelpMessage: "从智能模式接口池中选择。留空则使用当前 #ss 对话接口",
+          component: "Select",
+          componentProps: {
+            options: [{ label: "使用当前 #ss 接口", value: "" }].concat((Config.getConfig()?.smart_APIList || []).map((item) => ({
+              label: item.remark || "未命名接口",
+              value: item.remark || ""
+            })))
+          },
+        },
+        {
+          field: "smartMode.tools.enabledTools",
+          label: "启用工具",
+          bottomHelpMessage: "留空表示全部启用",
+          component: "Select",
+          componentProps: {
+            mode: 'multiple',
+            options: [
+              { label: "pokeTool - 戳一戳", value: "pokeTool" },
+              { label: "likeTool - 点赞", value: "likeTool" },
+              { label: "recallTool - 撤回消息", value: "recallTool" },
+              { label: "muteTool - 禁言", value: "muteTool" },
+              { label: "memberInfoTool - 成员信息", value: "memberInfoTool" },
+              { label: "searchTool - 网络搜索", value: "searchTool" },
+              { label: "imageSearchTool - 图片搜索", value: "imageSearchTool" },
+              { label: "musicTool - 音乐搜索", value: "musicTool" },
+              { label: "weatherTool - 天气查询", value: "weatherTool" },
+              { label: "translateTool - 翻译", value: "translateTool" },
+              { label: "webParserTool - 网页解析", value: "webParserTool" },
+              { label: "reminderTool - 定时提醒", value: "reminderTool" },
+              { label: "drawTool - AI绘图", value: "drawTool" },
+              { label: "chatHistoryTool - 聊天历史", value: "chatHistoryTool" },
+            ]
+          },
+        },
+        {
+          field: "smartMode.tools.searchConfig.maxKeywords",
+          label: "最大关键词数",
+          bottomHelpMessage: "searchTool 单次最多拆分几个分号分隔关键词，推荐 3",
+          component: "InputNumber",
+          componentProps: {
+            min: 1,
+            max: 5,
+            step: 1,
+          },
+        },
+        {
+          field: "smartMode.tools.searchConfig.maxResults",
+          label: "每关键词结果数",
+          bottomHelpMessage: "每个关键词最多返回几条结果，推荐 3",
+          component: "InputNumber",
+          componentProps: {
+            min: 1,
+            max: 10,
+            step: 1,
+          },
+        },
+        {
+          field: "smartMode.tools.searchConfig.maxTotalResults",
+          label: "总结果上限",
+          bottomHelpMessage: "所有关键词合并去重后的总结果上限，推荐 10",
+          component: "InputNumber",
+          componentProps: {
+            min: 5,
+            max: 20,
+            step: 1,
+          },
+        },
+        {
+          field: "smartMode.tools.searchConfig.maxRounds",
+          label: "搜索轮数",
+          bottomHelpMessage: "搜索引擎回退轮数，推荐 1；更高会更慢",
+          component: "InputNumber",
+          componentProps: {
+            min: 1,
+            max: 3,
+            step: 1,
+          },
+        },
+        {
+          field: "smartMode.tools.searchConfig.searxngUrl",
+          label: "SearXNG 搜索地址",
+          bottomHelpMessage: "可选。填写手动可用的 SearXNG 实例地址；留空时使用 DuckDuckGo / Bing 回退。",
+          component: "Input",
+          componentProps: {
+            placeholder: "https://searx.example.com",
+          },
+        },
+        {
+          field: "smartMode.tools.searchConfig.forwardReference",
+          label: "转发搜索来源",
+          bottomHelpMessage: "开启后，searchTool 会在主回复后用合并转发发送来源链接",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.searchConfig.showThinkingTip",
+          label: "显示搜索提示",
+          bottomHelpMessage: "searchTool 调用前先发送一条提示语",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.searchConfig.thinkingTipMsg",
+          label: "搜索提示语",
+          bottomHelpMessage: "searchTool 调用前发送的提示内容",
+          component: "Input",
+          componentProps: {
+            placeholder: "派蒙帮你去搜索一下哦，稍等片刻~",
+          },
+        },
+        {
+          field: "smartMode.tools.searchConfig.useEmojiReaction",
+          label: "搜索表情回应",
+          bottomHelpMessage: "NapCat 等协议支持时，对原消息添加思考表情",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.searchConfig.thinkingEmoji",
+          label: "思考表情 ID",
+          bottomHelpMessage: "NapCat 常用 176；仅在开启搜索表情回应时生效",
+          component: "Input",
+          componentProps: {
+            placeholder: "176",
+          },
+        },
+        {
+          field: "smartMode.tools.imageSearchConfig.defaultSource",
+          label: "默认图片来源",
+          bottomHelpMessage: "imageSearchTool 默认来源。auto 会按关键词自动切换 Bing / Pixiv",
+          component: "Select",
+          componentProps: {
+            options: [
+              { label: "auto - 自动判断", value: "auto" },
+              { label: "bing - 必应", value: "bing" },
+              { label: "pixiv - Pixiv", value: "pixiv" },
+            ]
+          },
+        },
+        {
+          field: "smartMode.tools.imageSearchConfig.autoUsePixiv",
+          label: "自动切换 Pixiv",
+          bottomHelpMessage: "当关键词明显偏二次元时，自动优先走 Pixiv 搜索",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.imageSearchConfig.pixivR18",
+          label: "允许 Pixiv R18",
+          bottomHelpMessage: "是否允许 Pixiv 返回 R18 内容",
+          component: "Switch",
+        },
+        {
+          field: "smartMode.tools.imageSearchConfig.pixivProxy",
+          label: "Pixiv 图片代理",
+          bottomHelpMessage: "用于替换 i.pximg.net 的代理域名",
+          component: "Input",
+          componentProps: {
+            placeholder: "i.pixiv.re",
+          },
+        },
+        {
+          field: "smartMode.tools.imageSearchConfig.imageQuality",
+          label: "图片质量",
+          bottomHelpMessage: "imageSearchTool 发送图片时使用的链接规格",
+          component: "Select",
+          componentProps: {
+            options: [
+              { label: "original - 原图", value: "original" },
+              { label: "master - 中等", value: "master" },
+              { label: "small - 小图", value: "small" },
+            ]
+          },
+        },
+        {
           label: '暖群功能',
           component: 'SOFT_GROUP_BEGIN'
         },
