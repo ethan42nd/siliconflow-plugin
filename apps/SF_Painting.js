@@ -44,6 +44,25 @@ import {
 import ChatCooldown from '../utils/chatCooldown.js'
 import WebUIServer from '../components/WebUIServer.js'
 
+let toolManager = null
+async function getToolManager() {
+    if (!toolManager) {
+        const { toolManager: tm } = await import('../utils/tools/ToolManager.js')
+        toolManager = tm
+        toolManager.init()
+    }
+    return toolManager
+}
+
+let modelRouter = null
+async function getModelRouter() {
+    if (!modelRouter) {
+        const { modelRouter: mr } = await import('../utils/tools/ModelRouter.js')
+        modelRouter = mr
+    }
+    return modelRouter
+}
+
 // 兼容旧版 WebSocket 服务变量
 var Ws_Server = {};
 
@@ -1247,6 +1266,21 @@ export class SF_Painting extends plugin {
             systemPrompt += "\n\n" + buildChatHistoryPrompt(chatHistory, prompt, e.self_id)
         }
 
+        if (config_date.smartMode?.tools?.enable) {
+            systemPrompt += `
+
+【工具调用说明】
+你可以按需调用工具来完成群管理、联网搜索、图片搜索、网页解析、音乐搜索、天气查询、翻译、定时提醒、AI绘图、聊天历史查询等任务。
+
+重要提示：
+- 当用户要求戳人、点赞、禁言、撤回、查询成员信息时，优先使用对应工具。
+- 当用户询问最新资讯、新闻、实时信息、网页内容、图片资料或需要查资料时，优先使用 searchTool、imageSearchTool、webParserTool 等联网工具。
+- 当用户@某人时，消息中通常已经包含 QQ 号（格式：用户名(QQ号: xxx)），工具参数中的 QQ/target 只填写纯数字。
+- 当用户要求看头像、描述图片、总结图片内容时，不要调用群管理工具，直接结合图片内容回答。
+- 禁言时间单位为秒，1 分钟 = 60 秒，1 小时 = 3600 秒。
+- 当前 function calling 提供的工具列表就是你真正可用的工具，只在确有必要时调用。`;
+        }
+
         const opt = {
             currentImages: currentImages.length > 0 ? currentImages : undefined,
             historyImages: historyImages.length > 0 ? historyImages : undefined,
@@ -1260,7 +1294,13 @@ export class SF_Painting extends plugin {
         if (e.send_typing) e.send_typing();
 
         logger.info(`[sf prompt]${'[图片]'.repeat(e.img?.length || 0)}${toAiMessage}`)
-        let { content: answer, imageBase64Array: generatedImageArray, isError } = await this.generatePrompt(toAiMessage, use_sf_key, config_date, true, apiBaseUrl, model, opt, historyMessages, e)
+        let {
+            content: answer,
+            imageBase64Array: generatedImageArray,
+            isError,
+            reasoning_content,
+            alreadyReplied
+        } = await this.generatePrompt(toAiMessage, use_sf_key, config_date, true, apiBaseUrl, model, opt, historyMessages, e)
 
         if (e.sf_is_from_first_person_call)
             ChatCooldown.end(e.user_id, e.group_id)
@@ -1273,20 +1313,16 @@ export class SF_Painting extends plugin {
         // 移除 CQ
         answer = removeCQCode(answer);
 
-        // 处理思考过程
-        let thinkingContent = '';
-        let cleanedAnswer = answer;
+        let thinkingContent = ''
+        let cleanedAnswer = answer
 
-        // 尝试从reasoning_content中获取思考过程
-        if (answer.reasoning_content) {
-            thinkingContent = answer.reasoning_content;
-            cleanedAnswer = answer.content;
+        if (reasoning_content) {
+            thinkingContent = reasoning_content
         } else {
-            // 尝试从<think>标签中获取思考过程
-            const thinkMatch = answer.match(/<think>([\s\S]*?)<\/think>/);
+            const thinkMatch = answer.match(/<think>([\s\S]*?)<\/think>/)
             if (thinkMatch) {
-                thinkingContent = thinkMatch[1].trim();
-                cleanedAnswer = answer.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                thinkingContent = thinkMatch[1].trim()
+                cleanedAnswer = answer.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
             }
         }
 
@@ -1297,6 +1333,10 @@ export class SF_Painting extends plugin {
                 content: cleanedAnswer,
                 imageBase64: undefined
             }, (isMaster || e.sf_is_from_first_person_call) ? config_date.ss_usingAPI : e.sf_llm_user_API || await findIndexByRemark(e, "ss", config_date), 'ss')
+        }
+
+        if (alreadyReplied) {
+            return
         }
 
         // 发送消息
@@ -1399,6 +1439,38 @@ export class SF_Painting extends plugin {
         const mustReturnImgRetriesTimes = opt.mustReturnImgRetriesTimes || 0;
         const errorRetryTimes = opt.errorRetryTimes || 3; // 错误重试次数，默认3次
         const needRetryForImage = mustReturnImgRetriesTimes > 0;
+        const toolsConfig = config_date.smartMode?.tools
+        const groupId = e?.group_id ? String(e.group_id) : '8888'
+        const numericGroupId = Number(groupId)
+        const toolsEnabled = Boolean(
+            forChat &&
+            toolsConfig?.enable &&
+            (
+                !toolsConfig.groupList?.length ||
+                toolsConfig.groupList.includes(groupId) ||
+                toolsConfig.groupList.includes(numericGroupId)
+            )
+        )
+
+        if (toolsEnabled) {
+            const toolResult = await this.generatePromptWithTools(
+                input,
+                config_date,
+                apiBaseUrl,
+                model,
+                opt,
+                historyMessages,
+                e,
+                {
+                    baseUrl: apiBaseUrl || config_date.ss_apiBaseUrl || config_date.sfBaseUrl,
+                    apiKey: use_sf_key,
+                    model: model || config_date.ss_model || config_date.translateModel
+                }
+            )
+            if (toolResult) {
+                return toolResult
+            }
+        }
 
         // 执行主要逻辑
         const executeRequest = async () => {
@@ -1500,6 +1572,276 @@ export class SF_Painting extends plugin {
         return lastResult;
     }
 
+    buildPromptRequestBody(input, config_date, forChat = false, model = "", opt = {}, historyMessages = [], e) {
+        const userName = e?.sender?.card || e?.sender?.nickname || "用户";
+        const systemPrompt = (!forChat ? config_date.sf_textToPaint_Prompt : opt.systemPrompt)
+            .replace(/{{user_name}}/g, userName);
+        const requestBody = {
+            model: model || config_date.translateModel,
+            messages: [
+                {
+                    role: "system",
+                    content: systemPrompt
+                }
+            ],
+            stream: false
+        };
+
+        const userMessages = formatContextForOpenAI(historyMessages, {
+            currentInput: historyMessages.length > 0 ? null : input,
+            currentImages: opt.currentImages,
+            historyImages: opt.historyImages
+        });
+
+        requestBody.messages.push(...userMessages);
+        return requestBody
+    }
+
+    async generatePromptWithTools(input, config_date, apiBaseUrl, model, opt, historyMessages, e, defaultApiConfig) {
+        try {
+            const tm = await getToolManager()
+            const mr = await getModelRouter()
+            const tools = tm.getToolInfos()
+            if (!tools.length) {
+                return null
+            }
+
+            const requestBody = this.buildPromptRequestBody(input, config_date, true, model, opt, historyMessages, e)
+            const debugLog = Boolean(config_date.smartMode?.tools?.debugLog)
+            const maxRounds = Math.max(1, config_date.smartMode?.tools?.maxToolRounds || 5)
+            const searchConfig = config_date.smartMode?.tools?.searchConfig || {}
+            let messages = [...requestBody.messages]
+            let hasExecutedTools = false
+            const pendingSearchResults = []
+            const currentDate = new Intl.DateTimeFormat('zh-CN', {
+                timeZone: 'Asia/Shanghai',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).format(new Date()).replaceAll('/', '-')
+
+            for (let round = 1; round <= maxRounds; round++) {
+                const shouldUseTools = !hasExecutedTools
+                const response = await mr.chat({
+                    messages,
+                    tools: shouldUseTools ? tools : undefined,
+                    purpose: shouldUseTools ? 'toolCall' : 'chat',
+                    defaultConfig: defaultApiConfig
+                })
+
+                if (!response.toolCalls?.length) {
+                    if (!hasExecutedTools) {
+                        return null
+                    }
+
+                    const aiReply = response.content?.trim() || response.reasoning_content?.trim() || '抱歉，我处理工具调用结果时出现了问题，请稍后再试。'
+                    if (aiReply) {
+                        await e.reply(aiReply)
+                    }
+
+                    if (pendingSearchResults.length > 0) {
+                        for (const searchData of pendingSearchResults) {
+                            await this.sendSearchReferences(e, searchData)
+                        }
+                    }
+
+                    return {
+                        content: aiReply,
+                        imageBase64Array: null,
+                        isError: false,
+                        reasoning_content: response.reasoning_content,
+                        sources: response.sources,
+                        alreadyReplied: true
+                    }
+                }
+
+                if (debugLog) {
+                    logger.mark(`[sf插件][工具调用] 第 ${round} 轮，触发 ${response.toolCalls.length} 个工具`)
+                }
+
+                messages.push({
+                    role: 'assistant',
+                    content: response.content || '',
+                    tool_calls: response.toolCalls
+                })
+
+                hasExecutedTools = true
+                let hasToolError = false
+                const failedTools = []
+                const hasSearchTool = response.toolCalls.some((toolCall) => toolCall.function?.name === 'searchTool')
+
+                if (hasSearchTool) {
+                    if (searchConfig.useEmojiReaction) {
+                        await this.sendEmojiReaction(e, searchConfig.thinkingEmoji || '176')
+                    }
+                    if (searchConfig.showThinkingTip !== false) {
+                        await e.reply(searchConfig.thinkingTipMsg || '派蒙帮你去搜索一下哦，稍等片刻~')
+                    }
+                }
+
+                const toolResults = await tm.processToolCalls(response.toolCalls, e)
+
+                for (const result of toolResults) {
+                    if (result.toolName !== 'searchTool' || result.error || !result.result) {
+                        continue
+                    }
+
+                    let searchData = result.result
+                    if (typeof searchData === 'string') {
+                        try {
+                            searchData = JSON.parse(searchData)
+                        } catch {
+                            continue
+                        }
+                    }
+
+                    if (searchData?.needForward !== false && Array.isArray(searchData?.results) && searchData.results.length > 0) {
+                        pendingSearchResults.push(searchData)
+                    }
+                }
+
+                for (const result of toolResults) {
+                    let toolContent = ''
+
+                    if (result?.error || result?.success === false) {
+                        hasToolError = true
+                        failedTools.push(result.toolName)
+                        toolContent = `工具执行失败：${result?.error || '未知错误'}`
+                    } else if (result.toolName === 'searchTool' && result.result?.results) {
+                        const searchResult = result.result
+                        const queryText = searchResult.queries?.join('；') || searchResult.query || '未提供'
+                        const resultLines = searchResult.results.slice(0, 5).map((item, index) => {
+                            const title = item.title || '无标题'
+                            const snippet = item.snippet || '无摘要'
+                            const link = item.link || '无链接'
+                            return `${index + 1}. 标题：${title}\n摘要：${snippet}\n链接：${link}`
+                        }).join('\n\n')
+
+                        toolContent =
+                            `网络搜索已完成。当前北京时间：${currentDate}。\n` +
+                            `搜索关键词：${queryText || '未提供'}。\n` +
+                            `共找到 ${searchResult.result_count || searchResult.results.length || 0} 条结果。\n` +
+                            `${resultLines || '未返回可用搜索结果。'}`
+                    } else if (typeof result.result === 'string') {
+                        toolContent = result.result
+                    } else {
+                        toolContent = JSON.stringify(result.result)
+                    }
+
+                    messages.push({
+                        role: 'tool',
+                        tool_call_id: result.toolCallId,
+                        name: result.toolName,
+                        content: toolContent
+                    })
+                }
+
+                let followUpPrompt =
+                    `当前北京时间是 ${currentDate}。工具调用已完成，请直接回答用户问题，不要继续调用任何工具。` +
+                    `如果用户询问“今天”“当前”“最新”等时效性问题，只有在工具结果明确支持该结论时才能下结论；` +
+                    `如果搜索结果里的日期与 ${currentDate} 不一致，或者没有明确日期，必须明确说明结果可能过时或无法确认今天的准确信息，绝不能把旧日期当成今天。` +
+                    `请优先总结最相关的搜索结果，并在需要时指出来源链接。`
+
+                if (hasToolError) {
+                    followUpPrompt += ` 部分工具执行失败：${failedTools.join('、')}。请说明失败情况，并基于成功返回的工具结果回答。`
+                }
+
+                messages.push({
+                    role: 'user',
+                    content: followUpPrompt
+                })
+
+                if (debugLog) {
+                    logger.mark(`[sf插件][工具调用] 第 ${round} 轮后准备生成最终回复`)
+                }
+            }
+
+            const fallbackResponse = await mr.chat({
+                messages,
+                purpose: 'chat',
+                defaultConfig: defaultApiConfig
+            })
+
+            const aiReply = fallbackResponse.content?.trim() || fallbackResponse.reasoning_content?.trim() || '工具调用次数过多，请稍后再试'
+            if (aiReply) {
+                await e.reply(aiReply)
+            }
+
+            if (pendingSearchResults.length > 0) {
+                for (const searchData of pendingSearchResults) {
+                    await this.sendSearchReferences(e, searchData)
+                }
+            }
+
+            return {
+                content: aiReply,
+                imageBase64Array: null,
+                isError: false,
+                reasoning_content: fallbackResponse.reasoning_content,
+                sources: fallbackResponse.sources,
+                alreadyReplied: true
+            }
+        } catch (error) {
+            logger.warn('[sf插件][工具调用] 调用失败，回退普通模式', error)
+            return null
+        }
+    }
+
+    async sendSearchReferences(e, searchData) {
+        try {
+            if (!Array.isArray(searchData?.results) || searchData.results.length === 0) {
+                return
+            }
+
+            const forwardMsgs = [
+                `🔍 搜索关键词：${searchData.queries?.join('；') || searchData.query || '未知'}`,
+                `📊 找到 ${searchData.result_count || searchData.results.length} 条相关结果：`
+            ]
+
+            searchData.results.forEach((result, index) => {
+                const title = result.title || '无标题'
+                const link = result.link || ''
+                const snippet = result.snippet
+                    ? `${result.snippet.substring(0, 100)}${result.snippet.length > 100 ? '...' : ''}`
+                    : ''
+                forwardMsgs.push(`${index + 1}. ${title}\n${snippet ? `${snippet}\n` : ''}${link}`)
+            })
+
+            if (common?.makeForwardMsg) {
+                await e.reply(await common.makeForwardMsg(e, forwardMsgs, `${e.sender?.card || e.sender?.nickname || '搜索'}的参考来源`))
+                return
+            }
+
+            if (e.group?.makeForwardMsg) {
+                const userId = Array.isArray(Bot.uin) ? Bot.uin[0] : Bot.uin
+                const forwardMsg = await e.group.makeForwardMsg(forwardMsgs.map((msg) => ({
+                    user_id: userId,
+                    nickname: Bot.nickname,
+                    message: msg
+                })))
+                await e.reply(forwardMsg)
+            }
+        } catch (error) {
+            logger.error('[sf插件]发送搜索来源失败:', error)
+        }
+    }
+
+    async sendEmojiReaction(e, emojiId) {
+        try {
+            const messageId = e.message_id || e.seq
+            if (!messageId || !e.bot?.sendApi) {
+                return
+            }
+
+            await e.bot.sendApi('set_msg_emoji_like', {
+                message_id: messageId,
+                emoji_id: String(emojiId)
+            })
+        } catch (error) {
+            logger.debug('[sf插件]发送表情回应失败:', error.message)
+        }
+    }
+
     /**
      * @description: 自动提示词内部实现
      * @param {*} input
@@ -1512,35 +1854,8 @@ export class SF_Painting extends plugin {
      * @return {Object} 返回 {content, imageBase64Array}
      */
     async _generatePromptInternal(input, use_sf_key, config_date, forChat = false, apiBaseUrl = "", model = "", opt = {}, historyMessages = [], e) {
-        // 获取用户名并替换prompt中的变量
-        const userName = e?.sender?.card || e?.sender?.nickname || "用户";
-        logger.debug(`[sf插件] 生成提示词 - 用户名: ${userName}`);
-
-        const systemPrompt = (!forChat ? config_date.sf_textToPaint_Prompt : opt.systemPrompt)
-            .replace(/{{user_name}}/g, userName);
-        //logger.mark(`[sf插件] 生成提示词 - 系统提示词: ${systemPrompt}`);
-
-        // 构造请求体
-        const requestBody = {
-            model: model || config_date.translateModel,
-            messages: [
-                {
-                    role: "system",
-                    content: systemPrompt
-                }
-            ],
-            stream: false
-        };
+        const requestBody = this.buildPromptRequestBody(input, config_date, forChat, model, opt, historyMessages, e)
         logger.debug(`[sf插件] 生成提示词 - 使用模型: ${requestBody.model}`);
-
-        // 统一使用 formatContextForOpenAI 函数处理历史对话和首次对话
-        const userMessages = formatContextForOpenAI(historyMessages, {
-            currentInput: historyMessages.length > 0 ? null : input,
-            currentImages: opt.currentImages,
-            historyImages: opt.historyImages
-        });
-
-        requestBody.messages.push(...userMessages);
 
         try {
             // 处理API URL，移除末尾斜杠并确保正确路径
@@ -1589,7 +1904,9 @@ export class SF_Painting extends plugin {
                 return {
                     content: data.choices[0].message.content,
                     imageBase64Array: imageBase64Array,
-                    isError: false
+                    isError: false,
+                    reasoning_content: data?.choices?.[0]?.message?.reasoning_content || data?.choices?.[0]?.reasoning_content,
+                    sources: data?.sources
                 };
             } else {
                 logger.warn("[sf插件]LLM调用错误：\n", JSON.stringify(data))

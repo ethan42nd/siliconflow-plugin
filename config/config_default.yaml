@@ -104,6 +104,37 @@ ss_isOnlyMaster: false # 默认配置是否仅限主人使用
 ss_enableImageUpload: true # 是否启用图片上传功能
 ss_APIList: [] # ss接口列表
 ss_usingAPI: 0 # 当前主人使用的ss接口索引
+smart_APIList: [] # 智能模式接口池
+smartMode:
+  proxy:
+    url: "" # HTTP/HTTPS/SOCKS5 代理地址，留空则不使用代理
+  tools:
+    enable: false
+    groupList: []
+    debugLog: false
+    maxToolRounds: 5
+    models:
+      toolCallModel: ""
+      drawingModel: ""
+      chatModel: ""
+    enabledTools: [] # 留空表示全部启用
+    searchConfig:
+      maxKeywords: 3
+      maxResults: 3
+      maxTotalResults: 10
+      maxRounds: 1
+      searxngUrl: ""
+      forwardReference: true
+      showThinkingTip: true
+      thinkingTipMsg: "派蒙帮你去搜索一下哦，稍等片刻~"
+      useEmojiReaction: false
+      thinkingEmoji: "176"
+    imageSearchConfig:
+      defaultSource: "auto"
+      autoUsePixiv: true
+      pixivR18: false
+      pixivProxy: "i.pixiv.re"
+      imageQuality: "master"
 # ss_userAPI: 0 # 当前用户使用的ss接口索引
 # Gemini API配置
 ggBaseUrl: ""
