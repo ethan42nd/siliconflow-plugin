@@ -160,7 +160,7 @@ export class SearchTool extends AbstractTool {
 
   async searchSearxng(query, numResults, searxngUrl) {
     try {
-      const response = await axios.get(`${this.normalizeBaseUrl(searxngUrl)}/search`, {
+      const response = await axios.get(`${this.normalizeBaseUrl(searxngUrl)}/search`, this.buildAxiosConfig({
         headers: this.createRequestHeaders({
           Accept: 'application/json, text/plain;q=0.9, */*;q=0.8'
         }),
@@ -170,7 +170,7 @@ export class SearchTool extends AbstractTool {
           format: 'json',
           engines: 'google,bing,duckduckgo'
         }
-      })
+      }, 'searxng'))
 
       const rawResults = Array.isArray(response.data?.results) ? response.data.results : []
       return rawResults.slice(0, numResults).map((item) => ({
@@ -186,13 +186,13 @@ export class SearchTool extends AbstractTool {
 
   async searchDuckDuckGo(query, numResults) {
     try {
-      const response = await axios.get('https://html.duckduckgo.com/html/', {
+      const response = await axios.get('https://html.duckduckgo.com/html/', this.buildAxiosConfig({
         headers: this.createRequestHeaders({
           Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
         }),
         timeout: 10000,
         params: { q: query }
-      })
+      }, 'duckduckgo'))
 
       return this.extractDuckDuckGoResults(response.data || '', numResults)
     } catch (error) {
@@ -203,7 +203,7 @@ export class SearchTool extends AbstractTool {
 
   async searchBing(query, numResults) {
     try {
-      const response = await axios.get('https://www.bing.com/search', {
+      const response = await axios.get('https://www.bing.com/search', this.buildAxiosConfig({
         headers: this.createRequestHeaders({
           Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
         }),
@@ -212,7 +212,7 @@ export class SearchTool extends AbstractTool {
           q: query,
           count: numResults
         }
-      })
+      }, 'bing'))
 
       return this.extractBingResults(response.data || '', numResults)
     } catch (error) {

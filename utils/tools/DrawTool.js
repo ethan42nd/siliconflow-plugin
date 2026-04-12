@@ -3,7 +3,6 @@ import axios from 'axios'
 import Config from '../../components/Config.js'
 import { hidePrivacyInfo } from '../common.js'
 import { url2Base64 } from '../getImg.js'
-import { HttpsProxyAgent } from 'https-proxy-agent'
 
 let modelRouter = null
 async function getModelRouter() {
@@ -124,6 +123,7 @@ export class DrawTool extends AbstractTool {
     }
 
     const debugLog = Config.getConfig()?.smartMode?.tools?.debugLog
+    const shouldUseProxy = apiConfig.useProxy && this.isToolProxyEnabled()
     if (debugLog) {
       logger.mark('\n========== [DrawTool] API 请求详情 ==========')
       logger.mark(`[DrawTool] 请求 URL: ${hidePrivacyInfo(url)}`)
@@ -132,7 +132,7 @@ export class DrawTool extends AbstractTool {
       logger.mark('[DrawTool] 请求头:')
       logger.mark(`  Authorization: Bearer ${apiConfig.apiKey ? `${apiConfig.apiKey.substring(0, 10)}***` : '未设置'}`)
       logger.mark('  Content-Type: application/json')
-      if (apiConfig.useProxy) {
+      if (shouldUseProxy) {
         logger.mark(`[DrawTool] 使用代理: ${hidePrivacyInfo(apiConfig.proxyUrl)}`)
       }
       logger.mark('[DrawTool] 请求体:')
@@ -146,7 +146,7 @@ export class DrawTool extends AbstractTool {
     }
 
     try {
-      const requestConfig = {
+      let requestConfig = {
         headers: {
           Authorization: `Bearer ${apiConfig.apiKey}`,
           'Content-Type': 'application/json'
@@ -154,12 +154,8 @@ export class DrawTool extends AbstractTool {
         timeout: 120000
       }
 
-      if (apiConfig.useProxy) {
-        try {
-          requestConfig.httpsAgent = new HttpsProxyAgent(apiConfig.proxyUrl)
-        } catch (proxyError) {
-          logger.warn(`[DrawTool] 代理配置失败: ${proxyError.message}，将尝试不使用代理`)
-        }
+      if (shouldUseProxy) {
+        requestConfig = this.buildAxiosConfig(requestConfig, 'draw-model-router')
       }
 
       const response = await axios.post(url, requestBody, requestConfig)
@@ -237,13 +233,13 @@ export class DrawTool extends AbstractTool {
         num_inference_steps: 20,
         guidance_scale: 7.5
       },
-      {
+      this.buildAxiosConfig({
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         },
         timeout: 120000
-      }
+      }, 'draw-siliconflow')
     )
 
     if (response.data?.images?.[0]?.url) {

@@ -134,14 +134,14 @@ export class ImageSearchTool extends AbstractTool {
         try {
           logger.debug(`[图片搜索] 尝试 Pixiv API: ${apiUrl.substring(0, 50)}...`)
 
-          const response = await fetch(apiUrl, {
+          const response = await fetch(apiUrl, this.buildFetchOptions({
             method: 'GET',
             headers: {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
               Accept: 'application/json'
             },
             timeout: 10000
-          })
+          }, 'pixiv-api'))
 
           if (!response.ok) continue
 
@@ -213,7 +213,7 @@ export class ImageSearchTool extends AbstractTool {
       url.searchParams.set('q', query)
       url.searchParams.set('count', count * 2)
 
-      const response = await fetch(url.toString(), { method: 'GET', headers })
+      const response = await fetch(url.toString(), this.buildFetchOptions({ method: 'GET', headers }, 'bing-images'))
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
@@ -237,7 +237,7 @@ export class ImageSearchTool extends AbstractTool {
     const checks = await Promise.allSettled(
       urls.map(async (url) => {
         try {
-          const response = await fetch(url, { method: 'HEAD', timeout: 3000 })
+          const response = await fetch(url, this.buildFetchOptions({ method: 'HEAD', timeout: 3000 }, 'image-validate'))
           if (!response.ok) {
             return { url, isValid: false }
           }

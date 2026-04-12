@@ -56,11 +56,11 @@ export class TranslateTool extends AbstractTool {
   async googleTranslate(text, sourceLang, targetLang) {
     try {
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`
-      const response = await fetch(url, {
+      const response = await fetch(url, this.buildFetchOptions({
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
-      })
+      }, 'google-translate'))
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
