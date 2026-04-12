@@ -1648,6 +1648,10 @@ export class SF_Painting extends plugin {
             let hasExecutedTools = false
             const pendingSearchResults = []
             const failedTools = new Set()
+            let searchTipSent = false
+            let searchReactionSent = false
+            let hasSearchAttempt = false
+            let hasUsefulSearchResults = false
             const currentDate = new Intl.DateTimeFormat('zh-CN', {
                 timeZone: 'Asia/Shanghai',
                 year: 'numeric',
@@ -1674,9 +1678,7 @@ export class SF_Painting extends plugin {
                     }
 
                     if (pendingSearchResults.length > 0) {
-                        for (const searchData of pendingSearchResults) {
-                            await this.sendSearchReferences(e, searchData)
-                        }
+                        await this.sendSearchReferences(e, pendingSearchResults)
                     }
 
                     return {
@@ -1705,11 +1707,16 @@ export class SF_Painting extends plugin {
                 const hasSearchTool = response.toolCalls.some((toolCall) => toolCall.function?.name === 'searchTool')
 
                 if (hasSearchTool) {
-                    if (searchConfig.useEmojiReaction) {
+                    hasSearchAttempt = true
+
+                    if (searchConfig.useEmojiReaction && !searchReactionSent) {
                         await this.sendEmojiReaction(e, searchConfig.thinkingEmoji || '176')
+                        searchReactionSent = true
                     }
-                    if (searchConfig.showThinkingTip !== false) {
+
+                    if (searchConfig.showThinkingTip !== false && !searchTipSent) {
                         await e.reply(searchConfig.thinkingTipMsg || '派蒙帮你去搜索一下哦，稍等片刻~')
+                        searchTipSent = true
                     }
                 }
 
@@ -1731,6 +1738,10 @@ export class SF_Painting extends plugin {
 
                     if (searchData?.needForward !== false && Array.isArray(searchData?.results) && searchData.results.length > 0) {
                         pendingSearchResults.push(searchData)
+                    }
+
+                    if (Array.isArray(searchData?.results) && searchData.results.length > 0) {
+                        hasUsefulSearchResults = true
                     }
                 }
 
@@ -1763,6 +1774,14 @@ export class SF_Painting extends plugin {
                             `搜索关键词：${queryText || '未提供'}。\n` +
                             `共找到 ${searchResult.result_count || searchResult.results.length || 0} 条结果。\n` +
                             `${resultLines || '未返回可用搜索结果。'}`
+
+                        if (searchResult.fallback_used) {
+                            toolContent += '\n注意：严格相关性筛选后没有可靠结果，以上仅为保留的低置信候选结果，不能直接当作来源依据。'
+                        }
+
+                        if (!Array.isArray(searchResult.results) || searchResult.results.length === 0) {
+                            toolContent += '\n未检索到可靠来源，请不要把空结果当成已证实结论；如需继续回答，应明确说明未搜到可靠资料，并基于模型已有知识给出谨慎判断。'
+                        }
                     } else if (result.toolName === 'webParserTool' && typeof result.result === 'object' && result.result?.content) {
                         const parsed = result.result
                         toolContent =
@@ -1800,6 +1819,10 @@ export class SF_Painting extends plugin {
                         followUpPrompt += ` 部分工具执行失败：${currentRoundFailedTools.join('、')}。请说明失败情况，并基于成功返回的工具结果继续处理。`
                     }
 
+                    if (hasSearchAttempt && !hasUsefulSearchResults) {
+                        followUpPrompt += ' 当前多轮搜索仍未返回可靠结果。除非你有明确的新检索方向，否则不要重复搜索；可以直接基于已有知识回答，并明确说明联网检索未找到可信来源、结论存在不确定性。'
+                    }
+
                     messages.push({
                         role: 'user',
                         content: followUpPrompt
@@ -1821,6 +1844,10 @@ export class SF_Painting extends plugin {
                 finalPrompt += ` 部分工具执行失败：${Array.from(failedTools).join('、')}。请说明失败情况，并基于成功返回的工具结果回答。`
             }
 
+            if (hasSearchAttempt && !hasUsefulSearchResults) {
+                finalPrompt += ' 多轮联网搜索未找到可靠结果，请不要继续搜索。请直接基于模型已有知识给出尽量有帮助的回答，同时明确说明“未检索到可信来源，以下为基于常识/术语习惯的谨慎判断”，避免把猜测表述成事实。'
+            }
+
             messages.push({
                 role: 'user',
                 content: finalPrompt
@@ -1838,9 +1865,7 @@ export class SF_Painting extends plugin {
             }
 
             if (pendingSearchResults.length > 0) {
-                for (const searchData of pendingSearchResults) {
-                    await this.sendSearchReferences(e, searchData)
-                }
+                await this.sendSearchReferences(e, pendingSearchResults)
             }
 
             return {
@@ -1857,18 +1882,69 @@ export class SF_Painting extends plugin {
         }
     }
 
+    mergeSearchReferences(searchDataList = []) {
+        const normalizedList = Array.isArray(searchDataList) ? searchDataList : [searchDataList]
+        const queries = []
+        const strongResults = []
+        const weakResults = []
+        const seenLinks = new Set()
+        let hasWeakFallback = false
+
+        for (const searchData of normalizedList) {
+            hasWeakFallback = hasWeakFallback || Boolean(searchData?.fallback_used)
+            const searchQueries = Array.isArray(searchData?.queries)
+                ? searchData.queries
+                : [searchData?.query].filter(Boolean)
+
+            for (const query of searchQueries) {
+                if (query && !queries.includes(query)) {
+                    queries.push(query)
+                }
+            }
+
+            for (const result of searchData?.results || []) {
+                const link = result?.link || ''
+                const uniqueKey = link || `${result?.title || ''}::${result?.snippet || ''}`
+                if (!uniqueKey || seenLinks.has(uniqueKey)) {
+                    continue
+                }
+
+                seenLinks.add(uniqueKey)
+                if (result?.weaklyRelevant) {
+                    weakResults.push(result)
+                } else {
+                    strongResults.push(result)
+                }
+            }
+        }
+
+        const results = strongResults.length > 0 ? strongResults : weakResults
+
+        return {
+            queries,
+            results,
+            result_count: results.length,
+            fallback_used: strongResults.length === 0 && hasWeakFallback
+        }
+    }
+
     async sendSearchReferences(e, searchData) {
         try {
-            if (!Array.isArray(searchData?.results) || searchData.results.length === 0) {
+            const mergedSearchData = this.mergeSearchReferences(searchData)
+            if (!Array.isArray(mergedSearchData?.results) || mergedSearchData.results.length === 0) {
                 return
             }
 
             const forwardMsgs = [
-                `🔍 搜索关键词：${searchData.queries?.join('；') || searchData.query || '未知'}`,
-                `📊 找到 ${searchData.result_count || searchData.results.length} 条相关结果：`
+                `🔍 搜索关键词：${mergedSearchData.queries?.join('；') || '未知'}`,
+                `📊 找到 ${mergedSearchData.result_count || mergedSearchData.results.length} 条相关结果：`
             ]
 
-            searchData.results.forEach((result, index) => {
+            if (mergedSearchData.fallback_used) {
+                forwardMsgs.push('⚠️ 以下为低置信候选结果：严格筛选后未找到可靠来源，仅供参考，不建议直接作为结论依据。')
+            }
+
+            mergedSearchData.results.forEach((result, index) => {
                 const title = result.title || '无标题'
                 const link = result.link || ''
                 const snippet = result.snippet

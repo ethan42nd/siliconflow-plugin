@@ -665,13 +665,265 @@ export class SearchTool extends AbstractTool {
     )]
   }
 
+  getGenericQueryTokens(query = '') {
+    const normalizedQuery = String(query || '').toLowerCase()
+    if (!normalizedQuery) {
+      return []
+    }
+
+    const stopTokens = new Set([
+      '是什么', '什么意思', '什么是', '来源', '起源', '术语', '解释', '意思', '介绍', '资料', '含义',
+      '是什么呢', '是什么啊', '怎么说', '叫法', '说法', '英文', '英语', '中文',
+      '台球', '桌球', '撞球', 'billiards', 'billiard', 'pool', 'snooker',
+      'the', 'and', 'for', 'with', 'from', 'that', 'this', 'what', 'meaning', 'origin',
+      'term', 'terminology', 'source', 'about', 'english', 'chinese'
+    ])
+
+    const rawTokens = normalizedQuery.match(/[a-z0-9]+[\u4e00-\u9fa5]*|[\u4e00-\u9fa5]+/g) || []
+    const normalizedTokens = rawTokens
+      .flatMap((token) => this.expandQueryToken(token))
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 2 && !stopTokens.has(token))
+
+    return [...new Set(normalizedTokens)]
+  }
+
+  countTokenMatches(text = '', tokens = []) {
+    const normalizedText = String(text || '').toLowerCase()
+    if (!normalizedText || !tokens.length) {
+      return 0
+    }
+
+    let matchCount = 0
+    for (const token of tokens) {
+      if (normalizedText.includes(token)) {
+        matchCount += 1
+      }
+    }
+
+    return matchCount
+  }
+
+  containsChinese(text = '') {
+    return /[\u4e00-\u9fa5]/.test(String(text || ''))
+  }
+
+  normalizeQueryText(text = '') {
+    return String(text || '')
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  translateQueryToEnglish(query = '') {
+    let translated = this.normalizeQueryText(query).toLowerCase()
+    if (!translated || !this.containsChinese(translated)) {
+      return ''
+    }
+
+    const replacements = [
+      [/台球|桌球|撞球/g, 'billiards '],
+      [/斯诺克/g, 'snooker '],
+      [/术语/g, ' term '],
+      [/来源|起源/g, ' origin '],
+      [/含义|意思|是什么意思|解释/g, ' meaning '],
+      [/英文/g, ' english '],
+      [/规则/g, ' rules '],
+      [/打法/g, ' play ']
+    ]
+
+    for (const [pattern, value] of replacements) {
+      translated = translated.replace(pattern, value)
+    }
+
+    translated = translated.replace(/([a-z])球/gi, (_, letter) => `"${String(letter).toLowerCase()} ball" `)
+    translated = translated.replace(/[？?。！，、；;]/g, ' ')
+    translated = translated.replace(/\s+/g, ' ').trim()
+
+    return translated
+  }
+
+  isTerminologyQuery(query = '') {
+    const normalizedQuery = String(query || '').toLowerCase()
+    return /术语|来源|起源|含义|意思|英文|英语|叫法|说法|简称|缩写|term|terminology|origin|meaning|glossary|etymology/.test(normalizedQuery)
+  }
+
+  extractQuotedTerms(query = '') {
+    const normalizedQuery = this.normalizeQueryText(query)
+    const terms = new Set()
+
+    for (const match of normalizedQuery.matchAll(/([a-z])球/gi)) {
+      const letter = String(match[1] || '').toLowerCase()
+      if (letter) {
+        terms.add(`${letter} ball`)
+      }
+    }
+
+    for (const match of normalizedQuery.matchAll(/["“”]([a-z][a-z0-9\- ]{0,20})["“”]/gi)) {
+      const term = this.normalizeQueryText(match[1] || '').toLowerCase()
+      if (term) {
+        terms.add(term)
+      }
+    }
+
+    return [...terms]
+  }
+
+  buildTermFocusedQueries(query = '') {
+    const normalizedQuery = this.normalizeQueryText(query)
+    const focusedQueries = []
+    const pushQuery = (value) => {
+      const normalizedValue = this.normalizeQueryText(value)
+      if (normalizedValue && !focusedQueries.includes(normalizedValue)) {
+        focusedQueries.push(normalizedValue)
+      }
+    }
+
+    const englishQuery = this.translateQueryToEnglish(normalizedQuery)
+    const quotedTerms = this.extractQuotedTerms(normalizedQuery)
+    const hasKBall = /k球/i.test(normalizedQuery)
+
+    if (englishQuery) {
+      pushQuery(englishQuery)
+    }
+
+    for (const term of quotedTerms) {
+      const normalizedTerm = term.replace(/\s+/g, ' ').trim().toLowerCase()
+      if (/^[a-z]\s*球$/i.test(normalizedTerm)) {
+        const letter = normalizedTerm[0].toLowerCase()
+        pushQuery(`billiards "${letter} ball" term`)
+        pushQuery(`billiards "${letter} ball" meaning`)
+      } else {
+        pushQuery(`billiards "${normalizedTerm}" term`)
+      }
+    }
+
+    if (hasKBall) {
+      pushQuery('billiards "k ball" term')
+      pushQuery('billiards "kiss shot" glossary')
+      pushQuery('cue sports kiss shot term')
+    }
+
+    return focusedQueries
+  }
+
+  buildExactPhraseQueries(query = '') {
+    const normalizedQuery = this.normalizeQueryText(query)
+    const exactQueries = []
+    const pushQuery = (value) => {
+      const normalizedValue = this.normalizeQueryText(value)
+      if (normalizedValue && !exactQueries.includes(normalizedValue)) {
+        exactQueries.push(normalizedValue)
+      }
+    }
+
+    const phraseMatches = normalizedQuery.match(/"([^"]+)"/g) || []
+    for (const rawPhrase of phraseMatches) {
+      const phrase = rawPhrase.replace(/"/g, '').trim()
+      if (!phrase) continue
+      pushQuery(`"${phrase}"`)
+      pushQuery(`"${phrase}" 台球`)
+    }
+
+    const letterMatch = normalizedQuery.match(/([a-z])球/i)
+    if (letterMatch?.[1]) {
+      const letter = letterMatch[1].toLowerCase()
+      pushQuery(`"${letter}球" 台球`)
+      pushQuery(`"${letter} ball" billiards`)
+    }
+
+    return exactQueries
+  }
+
+  buildSearchPlan(rawQueries = [], searchConfig = this.getSearchConfig()) {
+    const normalizedQueries = this.normalizeStringArray(rawQueries).map((query) => this.normalizeQueryText(query)).filter(Boolean)
+    const maxKeywords = searchConfig.maxKeywords || 3
+    const baseQueries = normalizedQueries.slice(0, maxKeywords)
+    const maxPlanRounds = Math.max(1, Math.min(3, searchConfig.maxRounds || 1))
+    const searchPlan = []
+    const seenQueries = new Set()
+
+    const pushRound = (queries = [], label = '') => {
+      const dedupedQueries = []
+      for (const query of queries) {
+        const normalizedQuery = this.normalizeQueryText(query)
+        if (!normalizedQuery || seenQueries.has(normalizedQuery)) {
+          continue
+        }
+
+        seenQueries.add(normalizedQuery)
+        dedupedQueries.push(normalizedQuery)
+      }
+
+      if (dedupedQueries.length > 0) {
+        searchPlan.push({ label, queries: dedupedQueries })
+      }
+    }
+
+    pushRound(baseQueries, 'base')
+
+    const terminologyMode = baseQueries.some((query) => this.isTerminologyQuery(query))
+    if (terminologyMode && searchPlan.length < maxPlanRounds) {
+      const exactQueries = baseQueries.flatMap((query) => this.buildExactPhraseQueries(query))
+      const englishQueries = baseQueries.flatMap((query) => this.buildTermFocusedQueries(query))
+      const remainingRounds = maxPlanRounds - searchPlan.length
+
+      if (remainingRounds <= 1) {
+        pushRound([...exactQueries, ...englishQueries].slice(0, maxKeywords), 'term_focus')
+      } else {
+        pushRound(exactQueries.slice(0, maxKeywords), 'exact_phrase')
+        if (searchPlan.length < maxPlanRounds) {
+          pushRound(englishQueries.slice(0, maxKeywords), 'term_en')
+        }
+      }
+    }
+
+    if (terminologyMode && searchPlan.length < maxPlanRounds) {
+      const glossaryQueries = baseQueries.flatMap((query) => {
+        const focusedQueries = []
+        if (/k球/i.test(query)) {
+          focusedQueries.push('site:wikipedia.org billiards kiss shot')
+          focusedQueries.push('site:wiktionary.org kiss shot billiards')
+        }
+        return focusedQueries
+      }).slice(0, 2)
+      pushRound(glossaryQueries, 'glossary')
+    }
+
+    return searchPlan.slice(0, maxPlanRounds)
+  }
+
+  expandQueryToken(token = '') {
+    const normalizedToken = String(token || '').trim().toLowerCase()
+    if (!normalizedToken) {
+      return []
+    }
+
+    const expandedTokens = [normalizedToken]
+    const chineseStopFragments = ['是什么', '什么意思', '什么是', '来源', '起源', '术语', '解释', '意思', '介绍', '资料', '含义', '英文', '英语', '中文']
+
+    for (const fragment of chineseStopFragments) {
+      if (normalizedToken.includes(fragment)) {
+        const strippedToken = normalizedToken.replaceAll(fragment, '').trim()
+        if (strippedToken && strippedToken !== normalizedToken) {
+          expandedTokens.push(strippedToken)
+        }
+      }
+    }
+
+    return expandedTokens
+  }
+
+  getFocusQueryTokens(query = '') {
+    const genericTokens = this.getGenericQueryTokens(query)
+    const broadTokens = new Set(['台球', '桌球', '撞球', 'billiards', 'billiard', 'pool', 'snooker'])
+    return genericTokens.filter((token) => !broadTokens.has(token))
+  }
+
   isResultRelevant(result = {}, query = '', searchConfig = this.getSearchConfig()) {
     const normalizedQuery = String(query || result.query || '').toLowerCase()
     const topicKeywords = this.getTopicKeywords(normalizedQuery, searchConfig)
-    if (!topicKeywords.length) {
-      return true
-    }
-
     const text = `${result.title || ''} ${result.snippet || ''} ${result.link || ''}`.toLowerCase()
     const hostname = this.normalizeHostname(result.link || '')
     const officialDomains = this.getOfficialDomainCandidates(normalizedQuery, searchConfig)
@@ -680,7 +932,24 @@ export class SearchTool extends AbstractTool {
       return true
     }
 
-    return topicKeywords.some((keyword) => text.includes(keyword))
+    if (topicKeywords.length > 0) {
+      return topicKeywords.some((keyword) => text.includes(keyword))
+    }
+
+    const genericTokens = this.getGenericQueryTokens(normalizedQuery)
+    if (genericTokens.length === 0) {
+      return true
+    }
+
+    const focusTokens = this.getFocusQueryTokens(normalizedQuery)
+    const genericMatches = this.countTokenMatches(text, genericTokens)
+    const focusMatches = this.countTokenMatches(text, focusTokens)
+
+    if (focusTokens.length > 0) {
+      return focusMatches > 0 || genericMatches >= 2
+    }
+
+    return genericMatches > 0
   }
 
   hasPricingSignals(result = {}) {
@@ -755,6 +1024,27 @@ export class SearchTool extends AbstractTool {
     return true
   }
 
+  isLowValueTerminologyResult(result = {}, query = '') {
+    const normalizedQuery = String(query || result.query || '').toLowerCase()
+    if (!this.isTerminologyQuery(normalizedQuery)) {
+      return false
+    }
+
+    const hostname = this.normalizeHostname(result.link || '')
+    const pathname = this.normalizePathname(result.link || '')
+    const titleAndSnippet = `${result.title || ''} ${result.snippet || ''}`.toLowerCase()
+
+    if (this.matchesDomain(hostname, 'zhihu.com') && /^\/topic\//.test(pathname)) {
+      return true
+    }
+
+    if (this.isCommunitySource(hostname) && !this.countTokenMatches(titleAndSnippet, this.getFocusQueryTokens(normalizedQuery))) {
+      return true
+    }
+
+    return /基本玩法|分类|区别|游戏|是什么游戏|规则是怎样/.test(titleAndSnippet)
+  }
+
   filterIrrelevantResults(results = [], searchConfig = {}) {
     if (searchConfig.filterIrrelevantResults === false) {
       return results
@@ -773,9 +1063,13 @@ export class SearchTool extends AbstractTool {
         return false
       }
 
+      if (this.isLowValueTerminologyResult(result, result.query || '')) {
+        return false
+      }
+
       return true
     })
-    return filteredResults.length > 0 ? filteredResults : results
+    return filteredResults
   }
 
   shouldEnrichWithPageContent(searchConfig = {}) {
@@ -788,6 +1082,12 @@ export class SearchTool extends AbstractTool {
 
   getMaxParsedChars(searchConfig = {}) {
     return this.clampSearchNumber(searchConfig.maxParsedChars, 1200, 500, 4000)
+  }
+
+  getRecallResultsPerQuery(searchConfig = {}, query = '') {
+    const defaultRecall = this.clampSearchNumber(searchConfig.recallResultsPerQuery, 8, 3, 20)
+    const terminologyRecall = this.clampSearchNumber(searchConfig.terminologyRecallResults, 10, 3, 20)
+    return this.isTerminologyQuery(query) ? terminologyRecall : defaultRecall
   }
 
   clampSearchNumber(value, defaultValue, min, max) {
@@ -806,12 +1106,11 @@ export class SearchTool extends AbstractTool {
 
     const parsedContent = await this.webParserTool.fetchWebContent(url, {
       extractType: 'summary',
-      maxChars
+      maxChars,
+      suppressLog: true
     })
 
-    if (parsedContent) {
-      this.pageContentCache.set(cacheKey, parsedContent)
-    }
+    this.pageContentCache.set(cacheKey, parsedContent || null)
 
     return parsedContent
   }
@@ -943,6 +1242,25 @@ export class SearchTool extends AbstractTool {
       score += 10
     }
 
+    if (!officialInfoQuery) {
+      const genericTokens = this.getGenericQueryTokens(normalizedQuery)
+      const focusTokens = this.getFocusQueryTokens(normalizedQuery)
+      const rankingText = `${normalizedTitle} ${normalizedSnippet} ${normalizedLink}`
+      const tokenMatches = this.countTokenMatches(rankingText, genericTokens)
+      const focusMatches = this.countTokenMatches(rankingText, focusTokens)
+      score += tokenMatches * 18
+      score += focusMatches * 30
+      if (this.isTerminologyQuery(normalizedQuery) && /glossary|dictionary|wiktionary|wikipedia|encyclopedia/.test(rankingText)) {
+        score += 25
+      }
+      if (genericTokens.length > 0 && tokenMatches === 0) {
+        score -= 80
+      }
+      if (focusTokens.length > 0 && focusMatches === 0) {
+        score -= 60
+      }
+    }
+
     return score
   }
 
@@ -958,6 +1276,36 @@ export class SearchTool extends AbstractTool {
         return a._index - b._index
       })
       .map(({ _score, _index, ...result }) => result)
+  }
+
+  selectWeakFallbackResults(results = [], searchConfig = {}) {
+    const maxFallbackResults = this.clampSearchNumber(searchConfig.maxWeakFallbackResults, 2, 0, 3)
+    if (maxFallbackResults <= 0) {
+      return []
+    }
+
+    const filteredCandidates = results.filter((result) => {
+      if (this.isLowValueOfficialPricingResult(result, result.query || '', searchConfig)) {
+        return false
+      }
+
+      if (this.isLowValueNonOfficialPricingResult(result, result.query || '', searchConfig)) {
+        return false
+      }
+
+      return !this.isCommunitySource(this.normalizeHostname(result.link || ''))
+        || this.countTokenMatches(
+          `${result.title || ''} ${result.snippet || ''} ${result.link || ''}`.toLowerCase(),
+          this.getFocusQueryTokens(result.query || '')
+        ) > 0
+    })
+
+    return this.rankSearchResults(filteredCandidates, searchConfig)
+      .slice(0, maxFallbackResults)
+      .map((result) => ({
+        ...result,
+        weaklyRelevant: true
+      }))
   }
 
   async searchOfficialSourceFallback(query, numResults, round, runtimeState, baseResults = []) {
@@ -1063,19 +1411,27 @@ export class SearchTool extends AbstractTool {
     })).filter((item) => item.link)
   }
 
-  async searchBing(query, numResults) {
+  async searchBing(query, numResults, searchConfig = this.getSearchConfig()) {
+    const normalizedQuery = this.normalizeQueryText(query)
+    const useEnglishLocale = !this.containsChinese(normalizedQuery)
+    const market = useEnglishLocale ? 'en-US' : 'zh-CN'
+    const setLang = useEnglishLocale ? 'en-US' : 'zh-Hans'
+    const recallResults = Math.max(numResults, this.getRecallResultsPerQuery(searchConfig, normalizedQuery))
     const response = await axios.get('https://www.bing.com/search', this.buildAxiosConfig({
       headers: this.createRequestHeaders({
+        'Accept-Language': useEnglishLocale ? 'en-US,en;q=0.9,zh-CN;q=0.6' : 'zh-CN,zh;q=0.9,en;q=0.8',
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
       }),
       timeout: 15000,
       params: {
-        q: query,
-        count: numResults
+        q: normalizedQuery,
+        count: recallResults,
+        mkt: market,
+        setlang: setLang
       }
     }, 'bing'))
 
-    return this.extractBingResults(response.data || '', numResults)
+    return this.extractBingResults(response.data || '', recallResults)
   }
 
   async performSearch(query, numResults, round = 0, runtimeState = {}) {
@@ -1109,7 +1465,7 @@ export class SearchTool extends AbstractTool {
         if (engine === 'searxng') {
           results = await this.searchSearxng(query, numResults, searchConfig.searxngUrl)
         } else if (engine === 'bing') {
-          results = await this.searchBing(query, numResults)
+          results = await this.searchBing(query, numResults, searchConfig)
         }
 
         if (results.length > 0) {
@@ -1141,22 +1497,22 @@ export class SearchTool extends AbstractTool {
     try {
       const searchConfig = this.getSearchConfig()
       const maxResults = Number(num_results) || searchConfig.maxResults || 3
-      const maxRounds = searchConfig.maxRounds || 1
       const queries = query.split(';').map((item) => item.trim()).filter(Boolean)
 
       if (queries.length === 0) {
         return '搜索失败：搜索关键词不能为空'
       }
 
-      const maxKeywords = searchConfig.maxKeywords || 3
-      const limitedQueries = queries.slice(0, maxKeywords)
+      const searchPlan = this.buildSearchPlan(queries, searchConfig)
+      const plannedQueries = searchPlan.flatMap((item) => item.queries)
       const runtimeState = {
         disabledEngines: new Set()
       }
 
       const allResults = []
-      for (let round = 0; round < maxRounds; round++) {
-        for (const singleQuery of limitedQueries) {
+      for (let round = 0; round < searchPlan.length; round++) {
+        const roundPlan = searchPlan[round]
+        for (const singleQuery of roundPlan.queries) {
           const results = await this.performSearch(singleQuery, maxResults, round, runtimeState)
           const officialFallbackResults = await this.searchOfficialSourceFallback(singleQuery, maxResults, round, runtimeState, results)
           const mergedResults = [...officialFallbackResults, ...results]
@@ -1182,15 +1538,22 @@ export class SearchTool extends AbstractTool {
       const maxTotalResults = searchConfig.maxTotalResults || 10
       const relevantResults = this.filterIrrelevantResults(allResults, searchConfig)
       const rankedResults = this.rankSearchResults(relevantResults, searchConfig)
-      const limitedResults = rankedResults.slice(0, maxTotalResults)
+      const fallbackResults = rankedResults.length === 0
+        ? this.selectWeakFallbackResults(allResults, searchConfig)
+        : []
+      const selectedResults = rankedResults.length > 0 ? rankedResults : fallbackResults
+      const limitedResults = selectedResults.slice(0, maxTotalResults)
       const finalResults = await this.enrichResultsWithWebContent(limitedResults, searchConfig)
 
       return {
         action: 'search',
-        queries: limitedQueries,
+        queries: plannedQueries,
         results: finalResults,
         result_count: finalResults.length,
-        rounds: maxRounds,
+        reliable_result_count: rankedResults.length,
+        raw_result_count: allResults.length,
+        fallback_used: rankedResults.length === 0 && fallbackResults.length > 0,
+        rounds: searchPlan.length,
         needForward: searchConfig.forwardReference !== false
       }
     } catch (error) {
