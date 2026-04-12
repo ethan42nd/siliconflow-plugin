@@ -108,6 +108,7 @@ smart_APIList: [] # 智能模式接口池
 smartMode:
   proxy:
     url: "" # HTTP/HTTPS/SOCKS5 代理地址，留空则不使用代理
+    enabledTools: [] # 需要通过代理访问的工具列表，如 searchTool、imageSearchTool
   tools:
     enable: false
     groupList: []

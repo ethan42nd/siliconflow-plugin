@@ -60,12 +60,12 @@ export class WeatherTool extends AbstractTool {
 
     try {
       const url = `https://wttr.in/${encodeURIComponent(city)}?format=j1&lang=zh`
-      const response = await fetch(url, {
+      const response = await fetch(url, this.buildFetchOptions({
         headers: {
           'User-Agent': 'curl/7.68.0'
         },
         signal: controller.signal
-      })
+      }, 'wttr'))
       clearTimeout(timeoutId)
 
       if (!response.ok) return null
@@ -101,7 +101,7 @@ export class WeatherTool extends AbstractTool {
 
     try {
       const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=zh&format=json`
-      const geoResponse = await fetch(geoUrl, { signal: geoController.signal })
+      const geoResponse = await fetch(geoUrl, this.buildFetchOptions({ signal: geoController.signal }, 'open-meteo-geocoding'))
       clearTimeout(geoTimeout)
 
       if (!geoResponse.ok) return null
@@ -121,7 +121,7 @@ export class WeatherTool extends AbstractTool {
 
     try {
       const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=${Math.min(days, 3)}`
-      const response = await fetch(weatherUrl, { signal: weatherController.signal })
+      const response = await fetch(weatherUrl, this.buildFetchOptions({ signal: weatherController.signal }, 'open-meteo-weather'))
       clearTimeout(weatherTimeout)
 
       if (!response.ok) return null

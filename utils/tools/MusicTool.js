@@ -50,7 +50,7 @@ export class MusicTool extends AbstractTool {
   async searchQQMusic(keyword, e) {
     try {
       const searchUrl = `https://c.y.qq.com/soso/fcgi-bin/client_search_cp?aggr=1&cr=1&flag_qc=0&p=1&n=5&w=${encodeURIComponent(keyword)}`
-      const response = await fetch(searchUrl)
+      const response = await fetch(searchUrl, this.buildFetchOptions({}, 'qq-music'))
       const text = await response.text()
       const json = JSON.parse(text.match(/callback\((.*)\)/)?.[1] || '{}')
 
@@ -85,11 +85,11 @@ export class MusicTool extends AbstractTool {
   async searchNeteaseMusic(keyword, e) {
     try {
       const searchUrl = `https://music.163.com/api/search/get/web?csrf_token=hlpretag=&hlposttag=&s=${encodeURIComponent(keyword)}&type=1&offset=0&total=true&limit=5`
-      const response = await fetch(searchUrl, {
+      const response = await fetch(searchUrl, this.buildFetchOptions({
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
-      })
+      }, 'netease-music'))
       const json = await response.json()
 
       const songs = json.result?.songs

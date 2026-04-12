@@ -1678,7 +1678,7 @@ export function supportGuoba() {
         },
         {
           component: "Divider",
-          label: "智能模式接口池",
+          label: "代理配置",
           componentProps: {
             orientation: "left",
             plain: true,
@@ -1694,8 +1694,42 @@ export function supportGuoba() {
           },
         },
         {
-          field: "smart_APIList",
+          component: "Divider",
+          label: "工具代理",
+          componentProps: {
+            orientation: "left",
+            plain: true,
+          },
+        },
+        {
+          field: "smartMode.proxy.enabledTools",
+          label: "代理工具列表",
+          bottomHelpMessage: "选择哪些联网工具走上方代理。drawTool 若走智能模式接口池，还需要对应接口项开启“启用代理”。",
+          component: "Select",
+          componentProps: {
+            mode: 'multiple',
+            options: [
+              { label: "🔍 网络搜索", value: "searchTool" },
+              { label: "🖼️ 图片搜索", value: "imageSearchTool" },
+              { label: "🔗 网页解析", value: "webParserTool" },
+              { label: "🌤️ 天气查询", value: "weatherTool" },
+              { label: "🌐 翻译", value: "translateTool" },
+              { label: "🎵 音乐搜索", value: "musicTool" },
+              { label: "🎨 AI绘图", value: "drawTool" },
+            ]
+          },
+        },
+        {
+          component: "Divider",
           label: "智能模式接口池",
+          componentProps: {
+            orientation: "left",
+            plain: true,
+          },
+        },
+        {
+          field: "smart_APIList",
+          label: "接口列表",
           bottomHelpMessage: "工具调用和智能模式可从这里选择专用接口；remark 会作为下拉选项展示名",
           component: "GSubForm",
           componentProps: {
@@ -1764,6 +1798,42 @@ export function supportGuoba() {
           }
         },
         {
+          field: "smartMode.tools.enabledTools",
+          label: "启用的工具",
+          bottomHelpMessage: "选择要启用的工具，推荐根据群聊实际需求选择。工具越多，AI判断开销越大。",
+          component: "Select",
+          componentProps: {
+            mode: 'multiple',
+            options: [
+              { label: "🤏 戳一戳", value: "pokeTool" },
+              { label: "👍 点赞", value: "likeTool" },
+              { label: "🗑️ 撤回消息", value: "recallTool" },
+              { label: "🚫 禁言/解禁", value: "muteTool" },
+              { label: "👤 查询成员信息", value: "memberInfoTool" },
+              { label: "🔍 网络搜索", value: "searchTool" },
+              { label: "🖼️ 图片搜索", value: "imageSearchTool" },
+              { label: "🎵 音乐搜索", value: "musicTool" },
+              { label: "🌤️ 天气查询", value: "weatherTool" },
+              { label: "🌐 翻译", value: "translateTool" },
+              { label: "🔗 网页解析", value: "webParserTool" },
+              { label: "⏰ 定时提醒", value: "reminderTool" },
+              { label: "🎨 AI绘图", value: "drawTool" },
+              { label: "💬 聊天历史", value: "chatHistoryTool" },
+            ]
+          },
+        },
+        {
+          field: "smartMode.tools.maxToolRounds",
+          label: "最大工具调用轮数",
+          bottomHelpMessage: "单次对话中最多进行几轮工具调用。设置过大可能导致对话时间过长。",
+          component: "InputNumber",
+          componentProps: {
+            min: 1,
+            max: 10,
+            step: 1,
+          },
+        },
+        {
           field: "smartMode.tools.debugLog",
           label: "工具调用详细日志",
           bottomHelpMessage: "开启后会在控制台输出工具调用的详细信息（请求参数、返回结果等），仅用于调试。",
@@ -1829,181 +1899,176 @@ export function supportGuoba() {
         },
         {
           component: 'Divider',
+          label: '🔧 工具专项配置',
           componentProps: {
             orientation: 'left',
             plain: true,
           },
         },
         {
-          field: "smartMode.tools.enabledTools",
-          label: "启用的工具",
-          bottomHelpMessage: "选择要启用的工具，推荐根据群聊实际需求选择。工具越多，AI判断开销越大。",
-          component: "Select",
+          field: "smartMode.tools.searchConfig",
+          label: "🔍 联网搜索配置",
+          bottomHelpMessage: "配置 searchTool 的关键词数量、结果数量、来源转发、提示语等选项。",
+          component: "GSubForm",
           componentProps: {
-            mode: 'multiple',
-            options: [
-              { label: "🤏 戳一戳", value: "pokeTool" },
-              { label: "👍 点赞", value: "likeTool" },
-              { label: "🗑️ 撤回消息", value: "recallTool" },
-              { label: "🚫 禁言/解禁", value: "muteTool" },
-              { label: "👤 查询成员信息", value: "memberInfoTool" },
-              { label: "🔍 网络搜索", value: "searchTool" },
-              { label: "🖼️ 图片搜索", value: "imageSearchTool" },
-              { label: "🎵 音乐搜索", value: "musicTool" },
-              { label: "🌤️ 天气查询", value: "weatherTool" },
-              { label: "🌐 翻译", value: "translateTool" },
-              { label: "🔗 网页解析", value: "webParserTool" },
-              { label: "⏰ 定时提醒", value: "reminderTool" },
-              { label: "🎨 AI绘图", value: "drawTool" },
-              { label: "💬 聊天历史", value: "chatHistoryTool" },
-            ]
+            multiple: false,
+            modalProps: {
+              title: "🔍 联网搜索配置",
+              width: 820,
+            },
+            schemas: [
+              {
+                field: "maxKeywords",
+                label: "最大关键词数",
+                bottomHelpMessage: "单次搜索最多使用几个关键词。多个关键词可获取更全面信息，但会增加 Token 消耗。推荐：3",
+                component: "InputNumber",
+                componentProps: {
+                  min: 1,
+                  max: 5,
+                  step: 1,
+                },
+              },
+              {
+                field: "maxResults",
+                label: "每关键词结果数",
+                bottomHelpMessage: "每个关键词返回几条搜索结果。推荐：3",
+                component: "InputNumber",
+                componentProps: {
+                  min: 1,
+                  max: 10,
+                  step: 1,
+                },
+              },
+              {
+                field: "maxTotalResults",
+                label: "总结最大结果数",
+                bottomHelpMessage: "单次搜索总计最多返回几条结果（去重后）。推荐：10",
+                component: "InputNumber",
+                componentProps: {
+                  min: 5,
+                  max: 20,
+                  step: 1,
+                },
+              },
+              {
+                field: "maxRounds",
+                label: "搜索轮数",
+                bottomHelpMessage: "进行几轮搜索（使用不同引擎或时间间隔）。增加轮数可提升全面性但耗时更长。推荐：1",
+                component: "InputNumber",
+                componentProps: {
+                  min: 1,
+                  max: 3,
+                  step: 1,
+                },
+              },
+              {
+                field: "searxngUrl",
+                label: "SearXNG 地址",
+                bottomHelpMessage: "可选：自建 SearXNG 实例地址（如 https://searx.example.com），提供更稳定的搜索。留空使用 DuckDuckGo。",
+                component: "Input",
+                componentProps: {
+                  placeholder: "https://searx.example.com",
+                },
+              },
+              {
+                field: "forwardReference",
+                label: "转发搜索来源",
+                bottomHelpMessage: "开启后，搜索结果链接会以转发消息（合并消息）形式发送，避免刷屏且更美观。",
+                component: "Switch",
+              },
+              {
+                field: "showThinkingTip",
+                label: "显示搜索提示",
+                bottomHelpMessage: "搜索前是否发送提示消息（如'派蒙帮你去搜索一下哦'）。",
+                component: "Switch",
+              },
+              {
+                field: "thinkingTipMsg",
+                label: "搜索提示语",
+                bottomHelpMessage: "搜索前发送的提示消息内容。",
+                component: "Input",
+                componentProps: {
+                  placeholder: "派蒙帮你去搜索一下哦，稍等片刻~",
+                },
+              },
+              {
+                field: "useEmojiReaction",
+                label: "使用表情回应",
+                bottomHelpMessage: "NapCat等协议支持的表情回应功能。开启后搜索时会用表情回应原消息表示思考中。",
+                component: "Switch",
+              },
+              {
+                field: "thinkingEmoji",
+                label: "思考表情ID",
+                bottomHelpMessage: "搜索时使用的表情ID。NapCat 可用 176（搜索/思考表情），其他协议请参考对应文档。",
+                component: "Input",
+                componentProps: {
+                  placeholder: "176",
+                },
+              },
+            ],
           },
         },
         {
-          field: "smartMode.tools.maxToolRounds",
-          label: "最大工具调用轮数",
-          bottomHelpMessage: "单次对话中最多进行几轮工具调用。设置过大可能导致对话时间过长。",
-          component: "InputNumber",
+          field: "smartMode.tools.imageSearchConfig",
+          label: "🖼️ 图片搜索配置",
+          bottomHelpMessage: "配置 imageSearchTool 的来源、Pixiv 切换、R18、图片代理和图片质量。",
+          component: "GSubForm",
           componentProps: {
-            min: 1,
-            max: 10,
-            step: 1,
-          },
-        },
-        {
-          field: "smartMode.tools.searchConfig.maxKeywords",
-          label: "最大关键词数",
-          bottomHelpMessage: "单次搜索最多使用几个关键词。多个关键词可获取更全面信息，但会增加 Token 消耗。推荐：3",
-          component: "InputNumber",
-          componentProps: {
-            min: 1,
-            max: 5,
-            step: 1,
-          },
-        },
-        {
-          field: "smartMode.tools.searchConfig.maxResults",
-          label: "每关键词结果数",
-          bottomHelpMessage: "每个关键词返回几条搜索结果。推荐：3",
-          component: "InputNumber",
-          componentProps: {
-            min: 1,
-            max: 10,
-            step: 1,
-          },
-        },
-        {
-          field: "smartMode.tools.searchConfig.maxTotalResults",
-          label: "总计最大结果数",
-          bottomHelpMessage: "单次搜索总计最多返回几条结果（去重后）。推荐：10",
-          component: "InputNumber",
-          componentProps: {
-            min: 5,
-            max: 20,
-            step: 1,
-          },
-        },
-        {
-          field: "smartMode.tools.searchConfig.maxRounds",
-          label: "搜索轮数",
-          bottomHelpMessage: "进行几轮搜索（使用不同引擎或时间间隔）。增加轮数可提升全面性但耗时更长。推荐：1",
-          component: "InputNumber",
-          componentProps: {
-            min: 1,
-            max: 3,
-            step: 1,
-          },
-        },
-        {
-          field: "smartMode.tools.searchConfig.searxngUrl",
-          label: "SearXNG 地址",
-          bottomHelpMessage: "可选：自建 SearXNG 实例地址（如 https://searx.example.com），提供更稳定的搜索。留空使用 DuckDuckGo。",
-          component: "Input",
-          componentProps: {
-            placeholder: "https://searx.example.com",
-          },
-        },
-        {
-          field: "smartMode.tools.searchConfig.forwardReference",
-          label: "转发搜索来源",
-          bottomHelpMessage: "开启后，搜索结果链接会以转发消息（合并消息）形式发送，避免刷屏且更美观。",
-          component: "Switch",
-        },
-        {
-          field: "smartMode.tools.searchConfig.showThinkingTip",
-          label: "显示搜索提示",
-          bottomHelpMessage: "搜索前是否发送提示消息（如'派蒙帮你去搜索一下哦'）。",
-          component: "Switch",
-        },
-        {
-          field: "smartMode.tools.searchConfig.thinkingTipMsg",
-          label: "搜索提示语",
-          bottomHelpMessage: "搜索前发送的提示消息内容。",
-          component: "Input",
-          componentProps: {
-            placeholder: "派蒙帮你去搜索一下哦，稍等片刻~",
-          },
-        },
-        {
-          field: "smartMode.tools.searchConfig.useEmojiReaction",
-          label: "使用表情回应",
-          bottomHelpMessage: "NapCat等协议支持的表情回应功能。开启后搜索时会用表情回应原消息表示思考中。",
-          component: "Switch",
-        },
-        {
-          field: "smartMode.tools.searchConfig.thinkingEmoji",
-          label: "思考表情ID",
-          bottomHelpMessage: "搜索时使用的表情ID。NapCat 可用 176（搜索/思考表情），其他协议请参考对应文档。",
-          component: "Input",
-          componentProps: {
-            placeholder: "176",
-          },
-        },
-        {
-          field: "smartMode.tools.imageSearchConfig.defaultSource",
-          label: "默认图片来源",
-          bottomHelpMessage: "图片搜索的默认来源。auto=自动判断（含二次元/动漫词自动使用 Pixiv），bing=必应，pixiv=Pixiv。",
-          component: "Select",
-          componentProps: {
-            options: [
-              { label: "🔄 自动判断", value: "auto" },
-              { label: "🔍 必应", value: "bing" },
-              { label: "🎨 Pixiv", value: "pixiv" },
-            ]
-          },
-        },
-        {
-          field: "smartMode.tools.imageSearchConfig.autoUsePixiv",
-          label: "自动切换 Pixiv",
-          bottomHelpMessage: "当关键词明显偏二次元时，自动优先走 Pixiv 搜索",
-          component: "Switch",
-        },
-        {
-          field: "smartMode.tools.imageSearchConfig.pixivR18",
-          label: "允许 Pixiv R18",
-          bottomHelpMessage: "是否允许 Pixiv 返回 R18 内容",
-          component: "Switch",
-        },
-        {
-          field: "smartMode.tools.imageSearchConfig.pixivProxy",
-          label: "Pixiv 图片代理",
-          bottomHelpMessage: "用于替换 i.pximg.net 的代理域名",
-          component: "Input",
-          componentProps: {
-            placeholder: "i.pixiv.re",
-          },
-        },
-        {
-          field: "smartMode.tools.imageSearchConfig.imageQuality",
-          label: "图片质量",
-          bottomHelpMessage: "imageSearchTool 发送图片时使用的链接规格",
-          component: "Select",
-          componentProps: {
-            options: [
-              { label: "original - 原图", value: "original" },
-              { label: "master - 中等", value: "master" },
-              { label: "small - 小图", value: "small" },
-            ]
+            multiple: false,
+            modalProps: {
+              title: "🖼️ 图片搜索配置",
+              width: 760,
+            },
+            schemas: [
+              {
+                field: "defaultSource",
+                label: "默认图片来源",
+                bottomHelpMessage: "图片搜索的默认来源。auto=自动判断（含二次元/动漫词自动使用 Pixiv），bing=必应，pixiv=Pixiv。",
+                component: "Select",
+                componentProps: {
+                  options: [
+                    { label: "🔄 自动判断", value: "auto" },
+                    { label: "🔍 必应", value: "bing" },
+                    { label: "🎨 Pixiv", value: "pixiv" },
+                  ]
+                },
+              },
+              {
+                field: "autoUsePixiv",
+                label: "自动切换 Pixiv",
+                bottomHelpMessage: "当关键词明显偏二次元时，自动优先走 Pixiv 搜索",
+                component: "Switch",
+              },
+              {
+                field: "pixivR18",
+                label: "允许 Pixiv R18",
+                bottomHelpMessage: "是否允许 Pixiv 返回 R18 内容",
+                component: "Switch",
+              },
+              {
+                field: "pixivProxy",
+                label: "Pixiv 图片代理",
+                bottomHelpMessage: "用于替换 i.pximg.net 的代理域名",
+                component: "Input",
+                componentProps: {
+                  placeholder: "i.pixiv.re",
+                },
+              },
+              {
+                field: "imageQuality",
+                label: "图片质量",
+                bottomHelpMessage: "imageSearchTool 发送图片时使用的链接规格",
+                component: "Select",
+                componentProps: {
+                  options: [
+                    { label: "original - 原图", value: "original" },
+                    { label: "master - 中等", value: "master" },
+                    { label: "small - 小图", value: "small" },
+                  ]
+                },
+              },
+            ],
           },
         },
         {
