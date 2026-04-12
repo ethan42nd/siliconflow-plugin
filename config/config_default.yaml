@@ -114,9 +114,11 @@ smartMode:
     debugLog: false
     maxToolRounds: 5
     models:
-      toolCallModel: ""
-      drawingModel: ""
-      chatModel: ""
+      toolCallModel: "" # 工具调用判断模型（需支持 Function Calling）
+      visionModel: "" # 视觉理解模型（需支持识图）
+      drawingModel: "" # AI绘图模型（需支持文生图）
+      searchModel: "" # 搜索增强模型
+      chatModel: "" # 对话生成模型（最终回复）
     enabledTools: [] # 留空表示全部启用
     searchConfig:
       maxKeywords: 3
