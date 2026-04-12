@@ -13,6 +13,28 @@ export function supportGuoba() {
   let groupList_total = Array.from(Bot.gl.values())
   groupList_total = groupList_total.map(item => item = { label: `${item.group_name} - ${item.group_id}`, value: item.group_id.toString() })
   const smartApiList = Config.getConfig()?.smart_APIList || []
+  const builtInSiteProfilesPreview = [
+    '内置搜索站点画像（示例）',
+    '',
+    '1. openai',
+    '关键词: openai, chatgpt, gpt, codex, sora, dall-e',
+    '官方域名: openai.com, platform.openai.com, chatgpt.com, help.openai.com',
+    '保底链接: https://openai.com/pricing/ | https://openai.com/api/pricing/ | https://platform.openai.com/docs',
+    '',
+    '2. anthropic',
+    '关键词: anthropic, claude',
+    '官方域名: anthropic.com, platform.claude.com, claude.ai',
+    '保底链接: https://platform.claude.com/docs/zh-CN/about-claude/pricing',
+    '价格低价值路径: ^/$, ^/login(?:/|$), app-google-auth, ^/public/artifacts(?:/|$)',
+    '',
+    '3. google',
+    '关键词: google, gemini, vertex ai',
+    '官方域名: ai.google.dev, cloud.google.com, developers.google.com, google.com',
+    '',
+    '4. github',
+    '关键词: github, copilot',
+    '官方域名: github.com, docs.github.com'
+  ].join('\n')
   const createSmartModelOptions = (defaultLabel) => ([
     { label: defaultLabel, value: "" },
     ...smartApiList
@@ -1962,12 +1984,74 @@ export function supportGuoba() {
                 },
               },
               {
+                field: "preferredEngine",
+                label: "优先搜索引擎",
+                bottomHelpMessage: "设置首选搜索源。auto 会优先使用 SearXNG（若已配置），否则使用 Bing。",
+                component: "Select",
+                componentProps: {
+                  options: [
+                    { label: "🔄 自动", value: "auto" },
+                    { label: "🔍 Bing", value: "bing" },
+                    { label: "🧩 SearXNG", value: "searxng" },
+                  ],
+                },
+              },
+              {
+                field: "preferOfficialSources",
+                label: "官方来源优先",
+                bottomHelpMessage: "对价格、套餐、订阅、API、文档等问题，优先补搜官网并提升官方结果排序。",
+                component: "Switch",
+              },
+              {
+                field: "demoteCommunitySources",
+                label: "社区站点降权",
+                bottomHelpMessage: "在官方信息类问题中，降低知乎、CSDN、掘金等社区站点的排序，减少噪音结果。",
+                component: "Switch",
+              },
+              {
+                field: "enrichWithPageContent",
+                label: "自动读取正文",
+                bottomHelpMessage: "搜索后自动读取前几个结果页面正文，能明显提高回答准确性，但会稍微增加联网耗时和 token 消耗。",
+                component: "Switch",
+              },
+              {
+                field: "maxParsedResults",
+                label: "正文解析页数",
+                bottomHelpMessage: "每次搜索最多自动读取几个网页正文。推荐 1-2，低频使用场景建议 2。",
+                component: "InputNumber",
+                componentProps: {
+                  min: 0,
+                  max: 3,
+                  step: 1,
+                },
+              },
+              {
+                field: "maxParsedChars",
+                label: "单页正文长度",
+                bottomHelpMessage: "每个网页最多向模型提供多少字符的正文内容。推荐 800-1500。",
+                component: "InputNumber",
+                componentProps: {
+                  min: 500,
+                  max: 4000,
+                  step: 100,
+                },
+              },
+              {
                 field: "searxngUrl",
                 label: "SearXNG 地址",
-                bottomHelpMessage: "可选：自建 SearXNG 实例地址（如 https://searx.example.com），提供更稳定的搜索。留空使用 DuckDuckGo。",
+                bottomHelpMessage: "可选：自建 SearXNG 实例地址（如 https://searx.example.com）。配置后可作为首选搜索源，并聚合更多搜索引擎。",
                 component: "Input",
                 componentProps: {
                   placeholder: "https://searx.example.com",
+                },
+              },
+              {
+                field: "searxngEngines",
+                label: "SearXNG 引擎",
+                bottomHelpMessage: "仅对 SearXNG 生效。多个引擎用英文逗号分隔，当前默认仅使用 bing。",
+                component: "Input",
+                componentProps: {
+                  placeholder: "bing",
                 },
               },
               {
@@ -2007,6 +2091,182 @@ export function supportGuoba() {
                 },
               },
             ],
+          },
+        },
+        {
+          field: "smartMode.tools.searchConfig.siteProfiles",
+          label: "🧩 搜索站点画像规则",
+          bottomHelpMessage: "高级配置页。按规则填写关键词、官方域名、保底链接和低价值页面。适合优化高频主题搜索，不再需要手写 JSON。",
+          component: "GSubForm",
+          componentProps: {
+            multiple: true,
+            modalProps: {
+              title: "🧩 搜索站点画像规则",
+              width: 900,
+            },
+            schemas: [
+              {
+                field: "id",
+                label: "规则 ID",
+                component: "Input",
+                bottomHelpMessage: "建议使用稳定英文 ID，例如 openai、anthropic、github。若与内置规则同名，会合并到该内置规则上。",
+                componentProps: {
+                  placeholder: "anthropic",
+                },
+              },
+              {
+                field: "keywordsText",
+                label: "匹配关键词",
+                component: "InputTextArea",
+                bottomHelpMessage: "多个关键词可用英文逗号、中文逗号、分号或换行分隔。用户问题中命中这些词时，会触发该规则。",
+                componentProps: {
+                  rows: 3,
+                  placeholder: "anthropic, claude",
+                },
+              },
+              {
+                field: "officialDomainsText",
+                label: "官方域名",
+                component: "InputTextArea",
+                bottomHelpMessage: "多个域名用逗号或换行分隔。用于官网优先、相关性过滤和官方补搜。",
+                componentProps: {
+                  rows: 3,
+                  placeholder: "anthropic.com\nplatform.claude.com\nclaude.ai",
+                },
+              },
+              {
+                field: "topicKeywordsText",
+                label: "主题关键词",
+                component: "InputTextArea",
+                bottomHelpMessage: "可选。用于进一步判断搜索结果是否相关；留空时默认等于匹配关键词。",
+                componentProps: {
+                  rows: 2,
+                  placeholder: "anthropic, claude",
+                },
+              },
+              {
+                component: "Divider",
+                label: "保底链接",
+                componentProps: {
+                  orientation: "left",
+                  plain: true,
+                },
+              },
+              {
+                field: "pricingTitle",
+                label: "价格页标题",
+                component: "Input",
+                componentProps: {
+                  placeholder: "定价 - Claude API Docs",
+                },
+              },
+              {
+                field: "pricingLink",
+                label: "价格页链接",
+                component: "Input",
+                componentProps: {
+                  placeholder: "https://platform.claude.com/docs/zh-CN/about-claude/pricing",
+                },
+              },
+              {
+                field: "pricingSnippet",
+                label: "价格页摘要",
+                component: "InputTextArea",
+                componentProps: {
+                  rows: 2,
+                  placeholder: "Claude API 官方定价文档，包含模型价格与相关计费信息。",
+                },
+              },
+              {
+                field: "docsTitle",
+                label: "文档页标题",
+                component: "Input",
+                componentProps: {
+                  placeholder: "Claude API Docs",
+                },
+              },
+              {
+                field: "docsLink",
+                label: "文档页链接",
+                component: "Input",
+                componentProps: {
+                  placeholder: "https://docs.example.com",
+                },
+              },
+              {
+                field: "docsSnippet",
+                label: "文档页摘要",
+                component: "InputTextArea",
+                componentProps: {
+                  rows: 2,
+                  placeholder: "该站点的官方开发文档入口。",
+                },
+              },
+              {
+                field: "defaultTitle",
+                label: "默认保底标题",
+                component: "Input",
+                componentProps: {
+                  placeholder: "官方首页",
+                },
+              },
+              {
+                field: "defaultLink",
+                label: "默认保底链接",
+                component: "Input",
+                componentProps: {
+                  placeholder: "https://example.com",
+                },
+              },
+              {
+                field: "defaultSnippet",
+                label: "默认保底摘要",
+                component: "InputTextArea",
+                componentProps: {
+                  rows: 2,
+                  placeholder: "该站点的官方入口页面。",
+                },
+              },
+              {
+                component: "Divider",
+                label: "价格类噪音过滤",
+                componentProps: {
+                  orientation: "left",
+                  plain: true,
+                },
+              },
+              {
+                field: "lowValuePricingPathsText",
+                label: "低价值路径",
+                component: "InputTextArea",
+                bottomHelpMessage: "多个路径规则用逗号或换行分隔，支持正则字符串。常用于首页、登录页、artifact 页面等。",
+                componentProps: {
+                  rows: 3,
+                  placeholder: "^/$\n^/login(?:/|$)\napp-google-auth",
+                },
+              },
+              {
+                field: "lowValuePricingTitleKeywordsText",
+                label: "低价值标题关键词",
+                component: "InputTextArea",
+                bottomHelpMessage: "多个关键词用逗号或换行分隔。命中后会在价格问题中被强降权或过滤。",
+                componentProps: {
+                  rows: 3,
+                  placeholder: "sign in\nlogin\nartifact",
+                },
+              },
+            ],
+          },
+        },
+        {
+          field: "site_profiles_builtin_preview",
+          label: "内置规则示例",
+          component: "InputTextArea",
+          bottomHelpMessage: "只读示例，方便参考当前内置规则的大致结构。若你新增同名规则，会与内置规则合并。",
+          componentProps: {
+            readonly: true,
+            rows: 18,
+            defaultValue: builtInSiteProfilesPreview,
           },
         },
         {
@@ -2927,6 +3187,7 @@ export function supportGuoba() {
       getConfigData() {
         let config = Config.getConfig()
         config.config_presets = Config.getConfig("presets")
+        config.site_profiles_builtin_preview = builtInSiteProfilesPreview
 
         return config
       },
@@ -2937,6 +3198,10 @@ export function supportGuoba() {
 
         // 根据 带点的路径 对 config 赋值
         for (let [keyPath, value] of Object.entries(data)) {
+          if (keyPath === 'site_profiles_builtin_preview') {
+            continue
+          }
+
           // 注意: data 并不存在 data['config_presets'] ，仅存在 带点的路径
           if (keyPath.startsWith("config_presets.")) {
             lodash.set(config_presets, keyPath.replace(/^config_presets\./, ""), value);

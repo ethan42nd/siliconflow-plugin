@@ -1597,6 +1597,40 @@ export class SF_Painting extends plugin {
         return requestBody
     }
 
+    containsToolCallArtifacts(text = '') {
+        const normalizedText = String(text || '')
+        if (!normalizedText) {
+            return false
+        }
+
+        return /function_calls|tool_calls|invoke name=|tool_call/i.test(normalizedText)
+    }
+
+    sanitizeToolCallArtifacts(text = '') {
+        return String(text || '')
+            .replace(/<[^>\n]*function_calls>[\s\S]*?<\/[^>\n]*function_calls>/gi, '')
+            .replace(/<[^>\n]*invoke[^>]*>[\s\S]*?<\/[^>\n]*invoke>/gi, '')
+            .replace(/<[^>\n]*parameter[^>]*>[\s\S]*?<\/[^>\n]*parameter>/gi, '')
+            .trim()
+    }
+
+    resolveToolFollowUpReply(response = {}, fallbackText = '抱歉，我处理工具调用结果时出现了问题，请稍后再试。') {
+        const rawReply = response.content?.trim() || response.reasoning_content?.trim() || fallbackText
+
+        if (!this.containsToolCallArtifacts(rawReply)) {
+            return rawReply
+        }
+
+        const sanitizedReply = this.sanitizeToolCallArtifacts(rawReply)
+        if (sanitizedReply) {
+            logger.warn('[sf插件][工具调用] 检测到模型输出了工具调用标记文本，已自动清理后再发送')
+            return sanitizedReply
+        }
+
+        logger.warn('[sf插件][工具调用] 检测到模型输出了未执行的工具调用标记，回退为通用错误提示')
+        return fallbackText
+    }
+
     async generatePromptWithTools(input, config_date, apiBaseUrl, model, opt, historyMessages, e, defaultApiConfig) {
         try {
             const tm = await getToolManager()
@@ -1613,6 +1647,7 @@ export class SF_Painting extends plugin {
             let messages = [...requestBody.messages]
             let hasExecutedTools = false
             const pendingSearchResults = []
+            const failedTools = new Set()
             const currentDate = new Intl.DateTimeFormat('zh-CN', {
                 timeZone: 'Asia/Shanghai',
                 year: 'numeric',
@@ -1621,11 +1656,10 @@ export class SF_Painting extends plugin {
             }).format(new Date()).replaceAll('/', '-')
 
             for (let round = 1; round <= maxRounds; round++) {
-                const shouldUseTools = !hasExecutedTools
                 const response = await mr.chat({
                     messages,
-                    tools: shouldUseTools ? tools : undefined,
-                    purpose: shouldUseTools ? 'toolCall' : 'chat',
+                    tools,
+                    purpose: 'toolCall',
                     defaultConfig: defaultApiConfig
                 })
 
@@ -1634,7 +1668,7 @@ export class SF_Painting extends plugin {
                         return null
                     }
 
-                    const aiReply = response.content?.trim() || response.reasoning_content?.trim() || '抱歉，我处理工具调用结果时出现了问题，请稍后再试。'
+                    const aiReply = this.resolveToolFollowUpReply(response)
                     if (aiReply) {
                         await e.reply(aiReply)
                     }
@@ -1667,7 +1701,7 @@ export class SF_Painting extends plugin {
 
                 hasExecutedTools = true
                 let hasToolError = false
-                const failedTools = []
+                const currentRoundFailedTools = []
                 const hasSearchTool = response.toolCalls.some((toolCall) => toolCall.function?.name === 'searchTool')
 
                 if (hasSearchTool) {
@@ -1705,7 +1739,8 @@ export class SF_Painting extends plugin {
 
                     if (result?.error || result?.success === false) {
                         hasToolError = true
-                        failedTools.push(result.toolName)
+                        currentRoundFailedTools.push(result.toolName)
+                        failedTools.add(result.toolName)
                         toolContent = `工具执行失败：${result?.error || '未知错误'}`
                     } else if (result.toolName === 'searchTool' && result.result?.results) {
                         const searchResult = result.result
@@ -1714,7 +1749,13 @@ export class SF_Painting extends plugin {
                             const title = item.title || '无标题'
                             const snippet = item.snippet || '无摘要'
                             const link = item.link || '无链接'
-                            return `${index + 1}. 标题：${title}\n摘要：${snippet}\n链接：${link}`
+                            const parsedContent = item.parsedContent ? item.parsedContent.substring(0, 600) : ''
+                            const parsedMeta = [
+                                item.parsedSiteName ? `站点：${item.parsedSiteName}` : '',
+                                item.parsedPublishedTime ? `发布时间：${item.parsedPublishedTime}` : ''
+                            ].filter(Boolean).join('，')
+
+                            return `${index + 1}. 标题：${title}\n摘要：${snippet}\n链接：${link}${parsedMeta ? `\n${parsedMeta}` : ''}${parsedContent ? `\n网页正文摘录：${parsedContent}` : ''}`
                         }).join('\n\n')
 
                         toolContent =
@@ -1722,6 +1763,17 @@ export class SF_Painting extends plugin {
                             `搜索关键词：${queryText || '未提供'}。\n` +
                             `共找到 ${searchResult.result_count || searchResult.results.length || 0} 条结果。\n` +
                             `${resultLines || '未返回可用搜索结果。'}`
+                    } else if (result.toolName === 'webParserTool' && typeof result.result === 'object' && result.result?.content) {
+                        const parsed = result.result
+                        toolContent =
+                            `网页解析已完成。\n` +
+                            `标题：${parsed.title || '无标题'}。\n` +
+                            `${parsed.description ? `描述：${parsed.description}\n` : ''}` +
+                            `${parsed.siteName ? `站点：${parsed.siteName}\n` : ''}` +
+                            `${parsed.publishedTime ? `发布时间：${parsed.publishedTime}\n` : ''}` +
+                            `${parsed.accessLimited ? `注意：${parsed.accessLimitedReason || '该页面返回了访问限制页面，未拿到目标正文'}\n` : ''}` +
+                            `链接：${parsed.finalUrl || parsed.url || '无链接'}。\n` +
+                            `正文内容：${parsed.content || '未提取到正文。'}`
                     } else if (typeof result.result === 'string') {
                         toolContent = result.result
                     } else {
@@ -1736,25 +1788,43 @@ export class SF_Painting extends plugin {
                     })
                 }
 
-                let followUpPrompt =
-                    `当前北京时间是 ${currentDate}。工具调用已完成，请直接回答用户问题，不要继续调用任何工具。` +
-                    `如果用户询问“今天”“当前”“最新”等时效性问题，只有在工具结果明确支持该结论时才能下结论；` +
-                    `如果搜索结果里的日期与 ${currentDate} 不一致，或者没有明确日期，必须明确说明结果可能过时或无法确认今天的准确信息，绝不能把旧日期当成今天。` +
-                    `请优先总结最相关的搜索结果，并在需要时指出来源链接。`
+                if (round < maxRounds) {
+                    let followUpPrompt =
+                        `当前北京时间是 ${currentDate}。工具调用已完成，请继续处理用户问题。` +
+                        `如果现有信息已经足够，请直接给出最终回答；只有在仍缺少关键信息时，才继续调用必要工具，避免重复搜索。` +
+                        `如果用户询问“今天”“当前”“最新”等时效性问题，只有在工具结果明确支持该结论时才能下结论；` +
+                        `如果搜索结果里的日期与 ${currentDate} 不一致，或者没有明确日期，必须明确说明结果可能过时或无法确认今天的准确信息。` +
+                        `请优先依据已返回的工具结果作答，并在需要时指出来源链接。`
 
-                if (hasToolError) {
-                    followUpPrompt += ` 部分工具执行失败：${failedTools.join('、')}。请说明失败情况，并基于成功返回的工具结果回答。`
-                }
+                    if (hasToolError) {
+                        followUpPrompt += ` 部分工具执行失败：${currentRoundFailedTools.join('、')}。请说明失败情况，并基于成功返回的工具结果继续处理。`
+                    }
 
-                messages.push({
-                    role: 'user',
-                    content: followUpPrompt
-                })
+                    messages.push({
+                        role: 'user',
+                        content: followUpPrompt
+                    })
 
-                if (debugLog) {
-                    logger.mark(`[sf插件][工具调用] 第 ${round} 轮后准备生成最终回复`)
+                    if (debugLog) {
+                        logger.mark(`[sf插件][工具调用] 第 ${round} 轮后继续等待模型判断是否需要更多工具`)
+                    }
                 }
             }
+
+            let finalPrompt =
+                `当前北京时间是 ${currentDate}。已达到最大工具调用轮数，请不要再调用任何工具，直接基于现有结果回答用户问题。` +
+                `如果用户询问“今天”“当前”“最新”等时效性问题，只有在工具结果明确支持该结论时才能下结论；` +
+                `如果搜索结果里的日期与 ${currentDate} 不一致，或者没有明确日期，必须明确说明结果可能过时或无法确认今天的准确信息。` +
+                `请优先总结最相关的搜索结果，并在需要时指出来源链接。`
+
+            if (failedTools.size > 0) {
+                finalPrompt += ` 部分工具执行失败：${Array.from(failedTools).join('、')}。请说明失败情况，并基于成功返回的工具结果回答。`
+            }
+
+            messages.push({
+                role: 'user',
+                content: finalPrompt
+            })
 
             const fallbackResponse = await mr.chat({
                 messages,
@@ -1762,7 +1832,7 @@ export class SF_Painting extends plugin {
                 defaultConfig: defaultApiConfig
             })
 
-            const aiReply = fallbackResponse.content?.trim() || fallbackResponse.reasoning_content?.trim() || '工具调用次数过多，请稍后再试'
+            const aiReply = this.resolveToolFollowUpReply(fallbackResponse, '工具调用次数过多，请稍后再试')
             if (aiReply) {
                 await e.reply(aiReply)
             }

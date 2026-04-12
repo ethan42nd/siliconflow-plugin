@@ -1,12 +1,13 @@
 import axios from 'axios'
 import Config from '../../components/Config.js'
 import { AbstractTool } from './AbstractTool.js'
+import { WebParserTool } from './WebParserTool.js'
 
 export class SearchTool extends AbstractTool {
   constructor() {
     super({
       name: 'searchTool',
-      description: '进行网络搜索获取实时信息，当用户询问需要最新数据、新闻、实时信息时使用此工具。支持一次搜索多个相关关键词以获取更全面的信息。',
+      description: '进行网络搜索获取实时信息，当用户询问需要最新数据、新闻、实时信息时使用此工具。支持 Bing、SearXNG，并支持一次搜索多个相关关键词以获取更全面的信息。',
       parameters: {
         type: 'object',
         properties: {
@@ -25,6 +26,13 @@ export class SearchTool extends AbstractTool {
         required: ['query']
       }
     })
+
+    this.webParserTool = new WebParserTool()
+    this.pageContentCache = new Map()
+    this.siteProfilesCache = {
+      key: null,
+      value: null
+    }
   }
 
   getSearchConfig() {
@@ -55,74 +63,949 @@ export class SearchTool extends AbstractTool {
     return this.decodeHtml(String(text).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '))
   }
 
-  parseDuckDuckGoLink(link = '') {
+  normalizeBaseUrl(url = '') {
+    return String(url).trim().replace(/\/$/, '')
+  }
+
+  parseBingLink(link = '') {
     try {
-      if (link.includes('uddg=')) {
-        const matched = link.match(/uddg=([^&]+)/)
-        if (matched) return decodeURIComponent(matched[1])
+      const cleanLink = this.decodeHtml(String(link || '').trim())
+      if (!cleanLink) return cleanLink
+      if (cleanLink.startsWith('//')) return `https:${cleanLink}`
+
+      const parsed = new URL(cleanLink)
+      if (!/(^|\.)bing\.com$/i.test(parsed.hostname)) {
+        return cleanLink
       }
-      if (link.startsWith('//')) return `https:${link}`
-      return link
+
+      for (const key of ['url', 'u', 'r', 'redirect']) {
+        const rawValue = parsed.searchParams.get(key)
+        const directUrl = this.decodeDirectUrl(rawValue || '')
+        if (directUrl) return directUrl
+      }
+
+      return cleanLink
     } catch {
       return link
     }
   }
 
-  normalizeBaseUrl(url = '') {
-    return String(url).trim().replace(/\/$/, '')
+  decodeDirectUrl(value = '') {
+    const rawValue = this.decodeHtml(String(value || '').trim())
+    if (!rawValue) return ''
+
+    const candidates = [rawValue]
+
+    try {
+      const decoded = decodeURIComponent(rawValue)
+      if (!candidates.includes(decoded)) {
+        candidates.push(decoded)
+      }
+    } catch {
+      // ignore invalid URL-encoded values
+    }
+
+    for (const candidate of candidates) {
+      if (/^https?:\/\//i.test(candidate)) {
+        return candidate
+      }
+    }
+
+    for (const candidate of candidates) {
+      const decodedBase64 = this.decodeBase64Url(candidate)
+      if (decodedBase64) {
+        return decodedBase64
+      }
+    }
+
+    return ''
   }
 
-  extractDuckDuckGoResults(html, numResults) {
+  decodeBase64Url(value = '') {
+    const normalized = String(value || '').trim().replace(/-/g, '+').replace(/_/g, '/')
+    if (!normalized) return ''
+
+    const candidates = [
+      normalized,
+      normalized.replace(/^[a-z]\d/i, ''),
+      normalized.replace(/^[a-z]\d+/, '')
+    ].filter(Boolean)
+
+    for (const candidate of candidates) {
+      try {
+        const padded = candidate.padEnd(candidate.length + ((4 - candidate.length % 4) % 4), '=')
+        const decoded = Buffer.from(padded, 'base64').toString('utf8').trim()
+        if (/^https?:\/\//i.test(decoded)) {
+          return decoded
+        }
+      } catch {
+        // ignore invalid base64 payloads
+      }
+    }
+
+    return ''
+  }
+
+  getPreferredEngine(searchConfig = {}) {
+    const preferredEngine = String(searchConfig.preferredEngine || 'auto').trim().toLowerCase()
+    const supportedEngines = ['auto', 'bing', 'searxng']
+    return supportedEngines.includes(preferredEngine) ? preferredEngine : 'auto'
+  }
+
+  getSearxngEngines(searchConfig = {}) {
+    const configuredEngines = String(searchConfig.searxngEngines || '').trim()
+    if (!configuredEngines) {
+      return 'bing'
+    }
+
+    const engines = configuredEngines
+      .split(',')
+      .map((engine) => engine.trim())
+      .filter(Boolean)
+
+    return engines.join(',') || 'bing'
+  }
+
+  getEngineOrder(searchConfig = {}, round = 0) {
+    const engineOrder = []
+
+    if (searchConfig.searxngUrl) {
+      engineOrder.push('searxng')
+    }
+
+    engineOrder.push('bing')
+
+    const uniqueEngines = [...new Set(engineOrder)]
+    const preferredEngine = this.getPreferredEngine(searchConfig)
+    const orderedEngines = preferredEngine !== 'auto' && uniqueEngines.includes(preferredEngine)
+      ? [preferredEngine, ...uniqueEngines.filter((engine) => engine !== preferredEngine)]
+      : uniqueEngines
+
+    if (orderedEngines.length <= 1 || round <= 0) {
+      return orderedEngines
+    }
+
+    const [firstEngine, ...fallbackEngines] = orderedEngines
+    if (fallbackEngines.length <= 1) {
+      return orderedEngines
+    }
+
+    const startIndex = round % fallbackEngines.length
+    return [firstEngine, ...fallbackEngines.slice(startIndex), ...fallbackEngines.slice(0, startIndex)]
+  }
+
+  shouldTemporarilyDisableEngine(error) {
+    const message = String(error?.message || '').toLowerCase()
+    if (!message) return true
+
+    return [
+      'client network socket disconnected',
+      'before secure tls connection was established',
+      'socket hang up',
+      'econnreset',
+      'econnrefused',
+      'etimedout',
+      'timeout',
+      'certificate',
+      'unable to verify',
+      'getaddrinfo',
+      'enotfound'
+    ].some((keyword) => message.includes(keyword))
+  }
+
+  isVerboseSearchLogEnabled(searchConfig = {}) {
+    return Boolean(searchConfig?.verboseLog || this.isToolDebugEnabled())
+  }
+
+  classifySearchError(error) {
+    if (error?.response?.status) {
+      return `http_${error.response.status}`
+    }
+
+    const code = String(error?.code || '').toLowerCase()
+    const message = String(error?.message || '').toLowerCase()
+    const combined = `${code} ${message}`
+
+    if (combined.includes('before secure tls connection was established') || combined.includes('certificate') || combined.includes('unable to verify')) {
+      return 'tls_handshake'
+    }
+
+    if (combined.includes('enotfound') || combined.includes('getaddrinfo')) {
+      return 'dns'
+    }
+
+    if (combined.includes('econnrefused')) {
+      return 'tcp_refused'
+    }
+
+    if (combined.includes('econnreset') || combined.includes('socket hang up') || combined.includes('client network socket disconnected')) {
+      return 'tcp_reset'
+    }
+
+    if (combined.includes('etimedout') || combined.includes('timeout')) {
+      return 'timeout'
+    }
+
+    return 'network_unknown'
+  }
+
+  normalizeHostname(link = '') {
+    try {
+      const hostname = new URL(link).hostname.toLowerCase()
+      return hostname.replace(/^www\./, '')
+    } catch {
+      return ''
+    }
+  }
+
+  normalizePathname(link = '') {
+    try {
+      return new URL(link).pathname.toLowerCase() || '/'
+    } catch {
+      return ''
+    }
+  }
+
+  normalizeStringArray(values = []) {
+    const sourceValues = Array.isArray(values) ? values : [values]
+    return [...new Set(sourceValues
+      .map((value) => String(value || '').trim())
+      .filter(Boolean))]
+  }
+
+  parseDelimitedText(value = '') {
+    if (Array.isArray(value)) {
+      return this.normalizeStringArray(value)
+    }
+
+    return this.normalizeStringArray(
+      String(value || '')
+        .split(/[\n,，;；]+/g)
+        .map((item) => item.trim())
+    )
+  }
+
+  mergeStringArrays(...arrays) {
+    return [...new Set(arrays.flatMap((items) => this.normalizeStringArray(items)))]
+  }
+
+  normalizeCuratedResults(curatedResults = {}) {
+    if (!curatedResults || typeof curatedResults !== 'object' || Array.isArray(curatedResults)) {
+      return {}
+    }
+
+    const normalized = {}
+    for (const [category, items] of Object.entries(curatedResults)) {
+      if (!Array.isArray(items)) continue
+
+      const normalizedItems = items
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null
+
+          const title = String(item.title || '').trim()
+          const link = String(item.link || '').trim()
+          const snippet = String(item.snippet || '').trim()
+          if (!title || !link) return null
+
+          return { title, link, snippet }
+        })
+        .filter(Boolean)
+
+      if (normalizedItems.length > 0) {
+        normalized[String(category || '').trim().toLowerCase()] = normalizedItems
+      }
+    }
+
+    return normalized
+  }
+
+  normalizeSiteProfile(profile = {}, fallbackId = '') {
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+      return null
+    }
+
+    const id = String(profile.id || fallbackId || '').trim()
+    const keywords = this.normalizeStringArray(profile.keywords || profile.matchKeywords || [])
+    const officialDomains = this.normalizeStringArray(profile.officialDomains || profile.domains || [])
+    if (!id || keywords.length === 0 || officialDomains.length === 0) {
+      return null
+    }
+
+    return {
+      id,
+      keywords,
+      topicKeywords: this.normalizeStringArray(profile.topicKeywords || keywords),
+      officialDomains,
+      curatedResults: this.normalizeCuratedResults(profile.curatedResults || {}),
+      lowValuePricingPaths: this.normalizeStringArray(profile.lowValuePricingPaths || []),
+      lowValuePricingTitleKeywords: this.normalizeStringArray(profile.lowValuePricingTitleKeywords || [])
+    }
+  }
+
+  convertStructuredSiteProfile(profile = {}) {
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) {
+      return profile
+    }
+
+    const buildCuratedEntry = (title, link, snippet) => {
+      const normalizedTitle = String(title || '').trim()
+      const normalizedLink = String(link || '').trim()
+      const normalizedSnippet = String(snippet || '').trim()
+      if (!normalizedTitle || !normalizedLink) {
+        return []
+      }
+
+      return [{
+        title: normalizedTitle,
+        link: normalizedLink,
+        snippet: normalizedSnippet
+      }]
+    }
+
+    return {
+      id: profile.id,
+      keywords: this.parseDelimitedText(profile.keywordsText || profile.keywords || profile.matchKeywords || ''),
+      topicKeywords: this.parseDelimitedText(profile.topicKeywordsText || profile.topicKeywords || ''),
+      officialDomains: this.parseDelimitedText(profile.officialDomainsText || profile.officialDomains || profile.domains || ''),
+      curatedResults: {
+        pricing: buildCuratedEntry(profile.pricingTitle, profile.pricingLink, profile.pricingSnippet),
+        docs: buildCuratedEntry(profile.docsTitle, profile.docsLink, profile.docsSnippet),
+        default: buildCuratedEntry(profile.defaultTitle, profile.defaultLink, profile.defaultSnippet)
+      },
+      lowValuePricingPaths: this.parseDelimitedText(profile.lowValuePricingPathsText || profile.lowValuePricingPaths || ''),
+      lowValuePricingTitleKeywords: this.parseDelimitedText(profile.lowValuePricingTitleKeywordsText || profile.lowValuePricingTitleKeywords || '')
+    }
+  }
+
+  mergeCuratedResults(baseResults = {}, overrideResults = {}) {
+    const merged = { ...baseResults }
+
+    for (const [category, items] of Object.entries(overrideResults || {})) {
+      merged[category] = [...(merged[category] || [])]
+      for (const item of items || []) {
+        if (!merged[category].find((existingItem) => existingItem.link === item.link)) {
+          merged[category].push(item)
+        }
+      }
+    }
+
+    return merged
+  }
+
+  mergeSiteProfile(baseProfile = {}, overrideProfile = {}) {
+    return {
+      id: overrideProfile.id || baseProfile.id,
+      keywords: this.mergeStringArrays(baseProfile.keywords, overrideProfile.keywords),
+      topicKeywords: this.mergeStringArrays(baseProfile.topicKeywords, overrideProfile.topicKeywords),
+      officialDomains: this.mergeStringArrays(baseProfile.officialDomains, overrideProfile.officialDomains),
+      curatedResults: this.mergeCuratedResults(baseProfile.curatedResults, overrideProfile.curatedResults),
+      lowValuePricingPaths: this.mergeStringArrays(baseProfile.lowValuePricingPaths, overrideProfile.lowValuePricingPaths),
+      lowValuePricingTitleKeywords: this.mergeStringArrays(baseProfile.lowValuePricingTitleKeywords, overrideProfile.lowValuePricingTitleKeywords)
+    }
+  }
+
+  getBuiltInSiteProfiles() {
+    return [
+      this.normalizeSiteProfile({
+        id: 'openai',
+        keywords: ['openai', 'chatgpt', 'gpt', 'codex', 'sora', 'dall-e'],
+        topicKeywords: ['openai', 'chatgpt', 'gpt', 'codex', 'sora', 'dall-e'],
+        officialDomains: ['openai.com', 'platform.openai.com', 'chatgpt.com', 'help.openai.com'],
+        curatedResults: {
+          pricing: [
+            {
+              title: 'ChatGPT Pricing | OpenAI',
+              link: 'https://openai.com/pricing/',
+              snippet: 'OpenAI 官方 ChatGPT 套餐与计划页面，包含 Free、Plus、Pro、Team、Enterprise 等方案。'
+            },
+            {
+              title: 'OpenAI API Pricing | OpenAI',
+              link: 'https://openai.com/api/pricing/',
+              snippet: 'OpenAI 官方 API 定价页面，包含模型调用和服务层级的最新价格信息。'
+            }
+          ],
+          docs: [
+            {
+              title: 'OpenAI Docs',
+              link: 'https://platform.openai.com/docs',
+              snippet: 'OpenAI 官方开发文档入口。'
+            }
+          ]
+        }
+      }, 'openai'),
+      this.normalizeSiteProfile({
+        id: 'anthropic',
+        keywords: ['anthropic', 'claude'],
+        topicKeywords: ['anthropic', 'claude'],
+        officialDomains: ['anthropic.com', 'platform.claude.com', 'claude.ai'],
+        curatedResults: {
+          pricing: [
+            {
+              title: '定价 - Claude API Docs',
+              link: 'https://platform.claude.com/docs/zh-CN/about-claude/pricing',
+              snippet: 'Claude API 官方定价文档，包含模型价格、数据驻留、批处理和提示缓存等相关信息。'
+            }
+          ]
+        },
+        lowValuePricingPaths: ['^/$', '^/login(?:/|$)', 'app-google-auth', '^/public/artifacts(?:/|$)'],
+        lowValuePricingTitleKeywords: ['sign in', 'login', 'artifact', 'installation guide', 'guide for windows']
+      }, 'anthropic'),
+      this.normalizeSiteProfile({
+        id: 'google',
+        keywords: ['google', 'gemini', 'vertex ai'],
+        topicKeywords: ['google', 'gemini', 'vertex ai'],
+        officialDomains: ['ai.google.dev', 'cloud.google.com', 'developers.google.com', 'google.com']
+      }, 'google'),
+      this.normalizeSiteProfile({
+        id: 'github',
+        keywords: ['github', 'copilot'],
+        topicKeywords: ['github', 'copilot'],
+        officialDomains: ['github.com', 'docs.github.com']
+      }, 'github'),
+      this.normalizeSiteProfile({
+        id: 'microsoft',
+        keywords: ['microsoft', 'azure openai'],
+        topicKeywords: ['microsoft', 'azure openai'],
+        officialDomains: ['learn.microsoft.com', 'azure.microsoft.com']
+      }, 'microsoft'),
+      this.normalizeSiteProfile({
+        id: 'perplexity',
+        keywords: ['perplexity'],
+        topicKeywords: ['perplexity'],
+        officialDomains: ['perplexity.ai', 'docs.perplexity.ai']
+      }, 'perplexity'),
+      this.normalizeSiteProfile({
+        id: 'xai',
+        keywords: ['xai', 'grok'],
+        topicKeywords: ['xai', 'grok'],
+        officialDomains: ['x.ai', 'docs.x.ai']
+      }, 'xai')
+    ].filter(Boolean)
+  }
+
+  parseCustomSiteProfiles(searchConfig = {}) {
+    const structuredProfiles = Array.isArray(searchConfig.siteProfiles)
+      ? searchConfig.siteProfiles
+          .map((profile, index) => this.normalizeSiteProfile(this.convertStructuredSiteProfile(profile), profile?.id || `custom_${index + 1}`))
+          .filter(Boolean)
+      : []
+
+    const rawProfiles = searchConfig.siteProfilesJson
+    const jsonProfiles = []
+    if (!rawProfiles) {
+      return structuredProfiles
+    }
+
+    try {
+      const parsedProfiles = typeof rawProfiles === 'string'
+        ? JSON.parse(rawProfiles.trim())
+        : rawProfiles
+
+      if (Array.isArray(parsedProfiles)) {
+        jsonProfiles.push(...parsedProfiles
+          .map((profile, index) => this.normalizeSiteProfile(profile, profile?.id || `custom_json_${index + 1}`))
+          .filter(Boolean))
+      }
+
+      if (parsedProfiles && typeof parsedProfiles === 'object') {
+        jsonProfiles.push(...Object.entries(parsedProfiles)
+          .map(([id, profile]) => this.normalizeSiteProfile(profile, id))
+          .filter(Boolean))
+      }
+    } catch (error) {
+      logger.warn(`[SearchTool] 解析自定义站点画像配置失败: ${error.message}`)
+    }
+
+    return [...structuredProfiles, ...jsonProfiles]
+  }
+
+  getSiteProfiles(searchConfig = this.getSearchConfig()) {
+    const cacheKey = typeof searchConfig.siteProfilesJson === 'string'
+      ? searchConfig.siteProfilesJson.trim()
+      : JSON.stringify(searchConfig.siteProfilesJson || '')
+
+    if (this.siteProfilesCache.key === cacheKey && Array.isArray(this.siteProfilesCache.value)) {
+      return this.siteProfilesCache.value
+    }
+
+    const builtInProfiles = this.getBuiltInSiteProfiles()
+    const customProfiles = this.parseCustomSiteProfiles(searchConfig)
+    const profileMap = new Map(builtInProfiles.map((profile) => [profile.id, profile]))
+
+    for (const profile of customProfiles) {
+      const existingProfile = profileMap.get(profile.id)
+      profileMap.set(profile.id, existingProfile ? this.mergeSiteProfile(existingProfile, profile) : profile)
+    }
+
+    const profiles = [...profileMap.values()]
+    this.siteProfilesCache = {
+      key: cacheKey,
+      value: profiles
+    }
+
+    return profiles
+  }
+
+  getMatchedSiteProfiles(query = '', searchConfig = this.getSearchConfig()) {
+    const normalizedQuery = String(query || '').toLowerCase()
+    if (!normalizedQuery) {
+      return []
+    }
+
+    return this.getSiteProfiles(searchConfig)
+      .filter((profile) => profile.keywords.some((keyword) => normalizedQuery.includes(keyword.toLowerCase())))
+  }
+
+  matchesDomain(hostname = '', domain = '') {
+    const normalizedHost = String(hostname || '').toLowerCase()
+    const normalizedDomain = String(domain || '').toLowerCase().replace(/^www\./, '')
+    if (!normalizedHost || !normalizedDomain) return false
+
+    return normalizedHost === normalizedDomain || normalizedHost.endsWith(`.${normalizedDomain}`)
+  }
+
+  isOfficialInfoQuery(query = '') {
+    const normalizedQuery = String(query || '').toLowerCase()
+    return [
+      '官网',
+      '官方',
+      '价格',
+      '套餐',
+      '收费',
+      '订阅',
+      '账单',
+      'pricing',
+      'price',
+      'plan',
+      'plans',
+      'subscription',
+      'billing',
+      'api',
+      '文档',
+      'docs',
+      'documentation',
+      '模型',
+      'model'
+    ].some((keyword) => normalizedQuery.includes(keyword))
+  }
+
+  isPricingQuery(query = '') {
+    const normalizedQuery = String(query || '').toLowerCase()
+    return [
+      '价格',
+      '套餐',
+      '收费',
+      '订阅',
+      '账单',
+      'pricing',
+      'price',
+      'plan',
+      'plans',
+      'subscription',
+      'billing',
+      'cost'
+    ].some((keyword) => normalizedQuery.includes(keyword))
+  }
+
+  getOfficialDomainCandidates(query = '', searchConfig = this.getSearchConfig()) {
+    return [...new Set(
+      this.getMatchedSiteProfiles(query, searchConfig)
+        .flatMap((profile) => profile.officialDomains || [])
+    )]
+  }
+
+  getCuratedResultCategories(query = '') {
+    const normalizedQuery = String(query || '').toLowerCase()
+    const categories = []
+
+    if (this.isPricingQuery(normalizedQuery)) {
+      categories.push('pricing')
+    }
+
+    if (/api|docs|documentation|开发者|文档/.test(normalizedQuery)) {
+      categories.push('docs')
+    }
+
+    if (categories.length === 0) {
+      categories.push('default')
+    }
+
+    return [...new Set(categories)]
+  }
+
+  getCuratedOfficialResults(query = '', searchConfig = this.getSearchConfig()) {
     const results = []
-    const pushResult = (title, link, snippet = '') => {
-      const cleanLink = this.parseDuckDuckGoLink(link || '')
-      const cleanTitle = this.stripTags(title || '')
-      const cleanSnippet = this.stripTags(snippet || '')
+    const matchedProfiles = this.getMatchedSiteProfiles(query, searchConfig)
+    const categories = this.getCuratedResultCategories(query)
 
-      if (!cleanLink || !cleanTitle) return
-      if (results.find((item) => item.link === cleanLink)) return
+    const pushResult = (title, link, snippet) => {
+      if (!link || results.find((item) => item.link === link)) return
+      results.push({ title, link, snippet })
+    }
 
-      results.push({
-        title: cleanTitle,
-        link: cleanLink,
-        snippet: cleanSnippet
+    for (const profile of matchedProfiles) {
+      for (const category of categories) {
+        for (const item of profile.curatedResults?.[category] || []) {
+          pushResult(item.title, item.link, item.snippet)
+        }
+      }
+
+      for (const item of profile.curatedResults?.default || []) {
+        pushResult(item.title, item.link, item.snippet)
+      }
+    }
+
+    return results
+  }
+
+  getTopicKeywords(query = '', searchConfig = this.getSearchConfig()) {
+    return [...new Set(
+      this.getMatchedSiteProfiles(query, searchConfig)
+        .flatMap((profile) => profile.topicKeywords || [])
+    )]
+  }
+
+  isResultRelevant(result = {}, query = '', searchConfig = this.getSearchConfig()) {
+    const normalizedQuery = String(query || result.query || '').toLowerCase()
+    const topicKeywords = this.getTopicKeywords(normalizedQuery, searchConfig)
+    if (!topicKeywords.length) {
+      return true
+    }
+
+    const text = `${result.title || ''} ${result.snippet || ''} ${result.link || ''}`.toLowerCase()
+    const hostname = this.normalizeHostname(result.link || '')
+    const officialDomains = this.getOfficialDomainCandidates(normalizedQuery, searchConfig)
+
+    if (officialDomains.some((domain) => this.matchesDomain(hostname, domain))) {
+      return true
+    }
+
+    return topicKeywords.some((keyword) => text.includes(keyword))
+  }
+
+  hasPricingSignals(result = {}) {
+    const text = `${result.title || ''} ${result.snippet || ''} ${result.link || ''}`.toLowerCase()
+    return /pricing|price|plan|plans|subscription|billing|cost|价格|收费|套餐|订阅|token|每百万/.test(text)
+  }
+
+  matchesConfiguredPatterns(text = '', patterns = []) {
+    for (const pattern of patterns) {
+      const rawPattern = String(pattern || '').trim()
+      if (!rawPattern) continue
+
+      try {
+        if (new RegExp(rawPattern, 'i').test(text)) {
+          return true
+        }
+      } catch {
+        if (text.toLowerCase().includes(rawPattern.toLowerCase())) {
+          return true
+        }
+      }
+    }
+
+    return false
+  }
+
+  isLowValueOfficialPricingResult(result = {}, query = '', searchConfig = this.getSearchConfig()) {
+    const normalizedQuery = String(query || result.query || '').toLowerCase()
+    if (!this.isPricingQuery(normalizedQuery)) {
+      return false
+    }
+
+    const hostname = this.normalizeHostname(result.link || '')
+    const pathname = this.normalizePathname(result.link || '')
+    const matchedProfiles = this.getMatchedSiteProfiles(normalizedQuery, searchConfig)
+    const officialDomains = this.getOfficialDomainCandidates(normalizedQuery, searchConfig)
+    if (!officialDomains.some((domain) => this.matchesDomain(hostname, domain))) {
+      return false
+    }
+
+    if (this.hasPricingSignals(result)) {
+      return false
+    }
+
+    const titleAndSnippet = `${result.title || ''} ${result.snippet || ''}`.toLowerCase()
+    const lowValuePathPatterns = matchedProfiles.flatMap((profile) => profile.lowValuePricingPaths || [])
+    const lowValueTitleKeywords = matchedProfiles.flatMap((profile) => profile.lowValuePricingTitleKeywords || [])
+
+    if (this.matchesConfiguredPatterns(pathname, lowValuePathPatterns)) {
+      return true
+    }
+
+    return lowValueTitleKeywords.some((keyword) => titleAndSnippet.includes(String(keyword || '').toLowerCase()))
+  }
+
+  isLowValueNonOfficialPricingResult(result = {}, query = '', searchConfig = this.getSearchConfig()) {
+    const normalizedQuery = String(query || result.query || '').toLowerCase()
+    if (!this.isPricingQuery(normalizedQuery)) {
+      return false
+    }
+
+    const hostname = this.normalizeHostname(result.link || '')
+    const officialDomains = this.getOfficialDomainCandidates(normalizedQuery, searchConfig)
+    if (officialDomains.some((domain) => this.matchesDomain(hostname, domain))) {
+      return false
+    }
+
+    if (this.hasPricingSignals(result)) {
+      return false
+    }
+
+    return true
+  }
+
+  filterIrrelevantResults(results = [], searchConfig = {}) {
+    if (searchConfig.filterIrrelevantResults === false) {
+      return results
+    }
+
+    const filteredResults = results.filter((result) => {
+      if (!this.isResultRelevant(result, result.query || '', searchConfig)) {
+        return false
+      }
+
+      if (this.isLowValueOfficialPricingResult(result, result.query || '', searchConfig)) {
+        return false
+      }
+
+      if (this.isLowValueNonOfficialPricingResult(result, result.query || '', searchConfig)) {
+        return false
+      }
+
+      return true
+    })
+    return filteredResults.length > 0 ? filteredResults : results
+  }
+
+  shouldEnrichWithPageContent(searchConfig = {}) {
+    return searchConfig.enrichWithPageContent !== false
+  }
+
+  getMaxParsedResults(searchConfig = {}) {
+    return this.clampSearchNumber(searchConfig.maxParsedResults, 2, 0, 3)
+  }
+
+  getMaxParsedChars(searchConfig = {}) {
+    return this.clampSearchNumber(searchConfig.maxParsedChars, 1200, 500, 4000)
+  }
+
+  clampSearchNumber(value, defaultValue, min, max) {
+    const parsedValue = Number(value)
+    if (!Number.isFinite(parsedValue)) {
+      return defaultValue
+    }
+    return Math.min(max, Math.max(min, Math.floor(parsedValue)))
+  }
+
+  async getParsedPageContent(url, maxChars) {
+    const cacheKey = `${url}::${maxChars}`
+    if (this.pageContentCache.has(cacheKey)) {
+      return this.pageContentCache.get(cacheKey)
+    }
+
+    const parsedContent = await this.webParserTool.fetchWebContent(url, {
+      extractType: 'summary',
+      maxChars
+    })
+
+    if (parsedContent) {
+      this.pageContentCache.set(cacheKey, parsedContent)
+    }
+
+    return parsedContent
+  }
+
+  async enrichResultsWithWebContent(results = [], searchConfig = {}) {
+    if (!this.shouldEnrichWithPageContent(searchConfig) || !results.length) {
+      return results
+    }
+
+    const maxParsedResults = this.getMaxParsedResults(searchConfig)
+    const maxParsedChars = this.getMaxParsedChars(searchConfig)
+    if (maxParsedResults <= 0) {
+      return results
+    }
+
+    const enrichedResults = results.map((result) => ({ ...result }))
+    let parsedCount = 0
+
+    for (const result of enrichedResults) {
+      if (parsedCount >= maxParsedResults) {
+        break
+      }
+
+      if (!/^https?:\/\//i.test(String(result.link || ''))) {
+        continue
+      }
+
+      const parsedPage = await this.getParsedPageContent(result.link, maxParsedChars)
+      if (!parsedPage?.content) {
+        continue
+      }
+
+      if (parsedPage.accessLimited) {
+        if (this.isVerboseSearchLogEnabled(searchConfig)) {
+          logger.info(`[SearchTool] 跳过网页正文增强: url=${result.link} reason=${parsedPage.accessLimitedReason || 'access_limited'}`)
+        }
+        continue
+      }
+
+      result.parsedTitle = parsedPage.title || ''
+      result.parsedDescription = parsedPage.description || ''
+      result.parsedContent = parsedPage.content || ''
+      result.parsedHeadings = parsedPage.headings || []
+      result.parsedFinalUrl = parsedPage.url || ''
+      result.parsedCanonicalUrl = parsedPage.canonicalUrl || ''
+      result.parsedSiteName = parsedPage.siteName || ''
+      result.parsedPublishedTime = parsedPage.publishedTime || ''
+      parsedCount += 1
+    }
+
+    return enrichedResults
+  }
+
+  isCommunitySource(hostname = '') {
+    const communityDomains = [
+      'zhihu.com',
+      'zhuanlan.zhihu.com',
+      'csdn.net',
+      'juejin.cn',
+      'weixin.qq.com',
+      'sohu.com',
+      '163.com',
+      'toutiao.com',
+      'bilibili.com'
+    ]
+
+    return communityDomains.some((domain) => this.matchesDomain(hostname, domain))
+  }
+
+  hasOfficialResult(results = [], officialDomains = []) {
+    if (!officialDomains.length) return false
+
+    return results.some((result) => {
+      const hostname = this.normalizeHostname(result.link || '')
+      return officialDomains.some((domain) => this.matchesDomain(hostname, domain))
+    })
+  }
+
+  filterResultsByDomains(results = [], domains = []) {
+    if (!domains.length) return results
+
+    return results.filter((result) => {
+      const hostname = this.normalizeHostname(result.link || '')
+      return domains.some((domain) => this.matchesDomain(hostname, domain))
+    })
+  }
+
+  scoreSearchResult(result = {}, query = '', searchConfig = {}) {
+    const hostname = this.normalizeHostname(result.link || '')
+    const normalizedQuery = String(query || result.query || '').toLowerCase()
+    const normalizedTitle = String(result.title || '').toLowerCase()
+    const normalizedSnippet = String(result.snippet || '').toLowerCase()
+    const normalizedLink = String(result.link || '').toLowerCase()
+    const officialDomains = this.getOfficialDomainCandidates(normalizedQuery, searchConfig)
+    const officialInfoQuery = this.isOfficialInfoQuery(normalizedQuery)
+    const pricingQuery = this.isPricingQuery(normalizedQuery)
+
+    let score = 0
+
+    if (officialInfoQuery && officialDomains.some((domain) => this.matchesDomain(hostname, domain))) {
+      score += 120
+    }
+
+    if (pricingQuery && /pricing|price|plan|plans|subscription|billing|cost|价格|收费|套餐|订阅/.test(`${normalizedTitle} ${normalizedSnippet} ${normalizedLink}`)) {
+      score += 35
+    }
+
+    if (pricingQuery && /token|每百万|million tokens|input|output|cache read|cache write/.test(`${normalizedTitle} ${normalizedSnippet}`)) {
+      score += 20
+    }
+
+    if (officialInfoQuery && /api|docs|documentation|help|platform|developer|开发者|文档/.test(`${normalizedTitle} ${normalizedSnippet} ${normalizedLink}`)) {
+      score += 20
+    }
+
+    if (this.isLowValueOfficialPricingResult(result, normalizedQuery, searchConfig)) {
+      score -= 160
+    }
+
+    if (searchConfig.demoteCommunitySources !== false && officialInfoQuery && this.isCommunitySource(hostname)) {
+      score -= 45
+    }
+
+    if (result.round === 1) {
+      score += 5
+    }
+
+    if (normalizedQuery && normalizedTitle.includes(normalizedQuery)) {
+      score += 10
+    }
+
+    return score
+  }
+
+  rankSearchResults(results = [], searchConfig = {}) {
+    return [...results]
+      .map((result, index) => ({
+        ...result,
+        _score: this.scoreSearchResult(result, result.query || '', searchConfig),
+        _index: index
+      }))
+      .sort((a, b) => {
+        if (b._score !== a._score) return b._score - a._score
+        return a._index - b._index
       })
+      .map(({ _score, _index, ...result }) => result)
+  }
+
+  async searchOfficialSourceFallback(query, numResults, round, runtimeState, baseResults = []) {
+    const searchConfig = this.getSearchConfig()
+    if (searchConfig.preferOfficialSources === false) {
+      return []
     }
 
-    const primaryRegex = /<a[^>]*class="[^"]*\bresult__a\b[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g
-    let match
-    while ((match = primaryRegex.exec(html)) !== null && results.length < numResults) {
-      pushResult(match[2], match[1])
+    if (!this.isOfficialInfoQuery(query)) {
+      return []
     }
 
-    if (results.length >= numResults) return results.slice(0, numResults)
-
-    const blockRegex = /<(div|article)[^>]*class="[^"]*\bresult\b[^"]*"[\s\S]*?<\/\1>/g
-    while ((match = blockRegex.exec(html)) !== null && results.length < numResults) {
-      const block = match[0]
-      const titleMatch = block.match(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/)
-      if (!titleMatch) continue
-
-      const snippetMatch = block.match(/<(?:a|div|span|p)[^>]*class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/(?:a|div|span|p)>/)
-        || block.match(/<p[^>]*>([\s\S]*?)<\/p>/)
-      pushResult(titleMatch[2], titleMatch[1], snippetMatch?.[1] || '')
+    const officialDomains = this.getOfficialDomainCandidates(query, searchConfig)
+    if (!officialDomains.length || this.hasOfficialResult(baseResults, officialDomains)) {
+      return []
     }
 
-    if (results.length >= numResults) return results.slice(0, numResults)
+    const fallbackDomains = officialDomains.slice(0, 2)
+    const fallbackResults = [...this.getCuratedOfficialResults(query, searchConfig)]
 
-    const liteRegex = /<a[^>]*rel="nofollow"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g
-    while ((match = liteRegex.exec(html)) !== null && results.length < numResults) {
-      pushResult(match[2], match[1])
+    if (this.isVerboseSearchLogEnabled(searchConfig)) {
+      logger.info(`[SearchTool] 触发官方来源补搜: query="${query}" domains=${fallbackDomains.join(', ')}`)
     }
 
-    return results.slice(0, numResults)
+    for (const domain of fallbackDomains) {
+      const siteQuery = `${query} site:${domain}`
+      const results = await this.performSearch(siteQuery, Math.min(numResults, 3), round, runtimeState)
+      const officialOnlyResults = this.filterResultsByDomains(results, [domain])
+
+      for (const result of officialOnlyResults) {
+        if (!fallbackResults.find((item) => item.link === result.link)) {
+          fallbackResults.push(result)
+        }
+      }
+
+      if (fallbackResults.length >= 3) {
+        break
+      }
+    }
+
+    return fallbackResults.slice(0, Math.max(3, numResults))
   }
 
   extractBingResults(html, numResults) {
     const results = []
     const pushResult = (title, link, snippet = '') => {
       const cleanTitle = this.stripTags(title || '')
-      const cleanLink = String(link || '').trim()
+      const cleanLink = this.parseBingLink(link || '')
       const cleanSnippet = this.stripTags(snippet || '')
 
       if (!cleanTitle || !cleanLink) return
@@ -159,93 +1042,73 @@ export class SearchTool extends AbstractTool {
   }
 
   async searchSearxng(query, numResults, searxngUrl) {
-    try {
-      const response = await axios.get(`${this.normalizeBaseUrl(searxngUrl)}/search`, this.buildAxiosConfig({
-        headers: this.createRequestHeaders({
-          Accept: 'application/json, text/plain;q=0.9, */*;q=0.8'
-        }),
-        timeout: 15000,
-        params: {
-          q: query,
-          format: 'json',
-          engines: 'google,bing,duckduckgo'
-        }
-      }, 'searxng'))
+    const searchConfig = this.getSearchConfig()
+    const response = await axios.get(`${this.normalizeBaseUrl(searxngUrl)}/search`, this.buildAxiosConfig({
+      headers: this.createRequestHeaders({
+        Accept: 'application/json, text/plain;q=0.9, */*;q=0.8'
+      }),
+      timeout: 15000,
+      params: {
+        q: query,
+        format: 'json',
+        engines: this.getSearxngEngines(searchConfig)
+      }
+    }, 'searxng'))
 
-      const rawResults = Array.isArray(response.data?.results) ? response.data.results : []
-      return rawResults.slice(0, numResults).map((item) => ({
-        title: this.stripTags(item.title || '无标题'),
-        link: item.url || item.link || '',
-        snippet: this.stripTags(item.content || item.snippet || item.abstract || '')
-      })).filter((item) => item.link)
-    } catch (error) {
-      logger.error('[SearchTool] SearXNG 搜索失败:', error.message)
-      return []
-    }
-  }
-
-  async searchDuckDuckGo(query, numResults) {
-    try {
-      const response = await axios.get('https://html.duckduckgo.com/html/', this.buildAxiosConfig({
-        headers: this.createRequestHeaders({
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        }),
-        timeout: 10000,
-        params: { q: query }
-      }, 'duckduckgo'))
-
-      return this.extractDuckDuckGoResults(response.data || '', numResults)
-    } catch (error) {
-      logger.error('[SearchTool] DuckDuckGo 搜索失败:', error.message)
-      return []
-    }
+    const rawResults = Array.isArray(response.data?.results) ? response.data.results : []
+    return rawResults.slice(0, numResults).map((item) => ({
+      title: this.stripTags(item.title || '无标题'),
+      link: item.url || item.link || '',
+      snippet: this.stripTags(item.content || item.snippet || item.abstract || '')
+    })).filter((item) => item.link)
   }
 
   async searchBing(query, numResults) {
-    try {
-      const response = await axios.get('https://www.bing.com/search', this.buildAxiosConfig({
-        headers: this.createRequestHeaders({
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        }),
-        timeout: 15000,
-        params: {
-          q: query,
-          count: numResults
-        }
-      }, 'bing'))
+    const response = await axios.get('https://www.bing.com/search', this.buildAxiosConfig({
+      headers: this.createRequestHeaders({
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+      }),
+      timeout: 15000,
+      params: {
+        q: query,
+        count: numResults
+      }
+    }, 'bing'))
 
-      return this.extractBingResults(response.data || '', numResults)
-    } catch (error) {
-      logger.error('[SearchTool] Bing 搜索失败:', error.message)
-      return []
-    }
+    return this.extractBingResults(response.data || '', numResults)
   }
 
-  async performSearch(query, numResults, round = 0) {
+  async performSearch(query, numResults, round = 0, runtimeState = {}) {
     const searchConfig = this.getSearchConfig()
+    const disabledEngines = runtimeState.disabledEngines || new Set()
 
     if (round > 0) {
       await new Promise((resolve) => setTimeout(resolve, 1000 * round))
     }
 
-    if (searchConfig.searxngUrl) {
-      const searxngResults = await this.searchSearxng(query, numResults, searchConfig.searxngUrl)
-      if (searxngResults.length > 0) {
-        return searxngResults
-      }
+    const engines = this.getEngineOrder(searchConfig, round)
+    const verboseLogEnabled = this.isVerboseSearchLogEnabled(searchConfig)
+
+    if (verboseLogEnabled) {
+      logger.info(
+        `[SearchTool] 查询="${query}" round=${round + 1} preferred=${this.getPreferredEngine(searchConfig)} engines=${engines.join(' -> ')} proxy=${this.isToolProxyEnabled() ? 'on' : 'off'}`
+      )
     }
 
-    const engines = ['duckduckgo', 'bing']
-    const startIndex = round % engines.length
+    for (const engine of engines) {
+      if (disabledEngines.has(engine)) {
+        if (verboseLogEnabled) {
+          logger.info(`[SearchTool] 跳过已临时禁用的搜索引擎: ${engine}`)
+        }
+        continue
+      }
 
-    for (let i = 0; i < engines.length; i++) {
-      const engine = engines[(startIndex + i) % engines.length]
       let results = []
 
       try {
-        if (engine === 'duckduckgo') {
-          results = await this.searchDuckDuckGo(query, numResults)
-        } else {
+        if (engine === 'searxng') {
+          results = await this.searchSearxng(query, numResults, searchConfig.searxngUrl)
+        } else if (engine === 'bing') {
           results = await this.searchBing(query, numResults)
         }
 
@@ -254,7 +1117,14 @@ export class SearchTool extends AbstractTool {
           return results
         }
       } catch (error) {
-        logger.warn(`[SearchTool] ${engine} 搜索失败:`, error.message)
+        const errorType = this.classifySearchError(error)
+        logger.error(`[SearchTool] ${engine} 搜索失败(${errorType}):`, error.message)
+        if (this.shouldTemporarilyDisableEngine(error)) {
+          disabledEngines.add(engine)
+          if (verboseLogEnabled) {
+            logger.info(`[SearchTool] 已临时禁用搜索引擎: ${engine}`)
+          }
+        }
       }
     }
 
@@ -280,14 +1150,20 @@ export class SearchTool extends AbstractTool {
 
       const maxKeywords = searchConfig.maxKeywords || 3
       const limitedQueries = queries.slice(0, maxKeywords)
+      const runtimeState = {
+        disabledEngines: new Set()
+      }
 
       const allResults = []
       for (let round = 0; round < maxRounds; round++) {
         for (const singleQuery of limitedQueries) {
-          const results = await this.performSearch(singleQuery, maxResults, round)
-          if (!results.length) continue
+          const results = await this.performSearch(singleQuery, maxResults, round, runtimeState)
+          const officialFallbackResults = await this.searchOfficialSourceFallback(singleQuery, maxResults, round, runtimeState, results)
+          const mergedResults = [...officialFallbackResults, ...results]
 
-          for (const result of results) {
+          if (!mergedResults.length) continue
+
+          for (const result of mergedResults) {
             if (!allResults.find((item) => item.link === result.link)) {
               allResults.push({
                 ...result,
@@ -304,7 +1180,10 @@ export class SearchTool extends AbstractTool {
       }
 
       const maxTotalResults = searchConfig.maxTotalResults || 10
-      const finalResults = allResults.slice(0, maxTotalResults)
+      const relevantResults = this.filterIrrelevantResults(allResults, searchConfig)
+      const rankedResults = this.rankSearchResults(relevantResults, searchConfig)
+      const limitedResults = rankedResults.slice(0, maxTotalResults)
+      const finalResults = await this.enrichResultsWithWebContent(limitedResults, searchConfig)
 
       return {
         action: 'search',

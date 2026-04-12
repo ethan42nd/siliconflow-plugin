@@ -526,6 +526,15 @@ class Config {
   /** 验证配置文件 */
   validateConfig(config) {
     const existingRemarks = new Set(['ss_default', 'gg_default', 'dd_default']) // 预置的默认文件名
+    const siteProfilesJson = config.smartMode?.tools?.searchConfig?.siteProfilesJson
+
+    if (typeof siteProfilesJson === 'string' && siteProfilesJson.trim()) {
+      try {
+        JSON.parse(siteProfilesJson)
+      } catch (error) {
+        throw new Error(`搜索站点画像配置 JSON 格式错误: ${error.message}`)
+      }
+    }
 
     // 检查ss_APIList
     if (config.ss_APIList && Array.isArray(config.ss_APIList)) {
